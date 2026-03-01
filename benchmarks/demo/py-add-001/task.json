@@ -1,0 +1,7 @@
+{
+  "id": "py-add-001",
+  "suite": "demo",
+  "language": "python",
+  "time_limit_sec": 60,
+  "eval_cmd": "/eval/run.sh"
+}
