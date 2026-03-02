@@ -1,4 +1,4 @@
-# Scientific Coding Benchmark (LLM)
+# Scientific Coding Benchmark for LLM Models
 
 This repo hosts an agentic coding benchmark for scientific computing tasks.
 
