@@ -237,8 +237,6 @@ def _run_opencode_run_in_docker(
         "OPENCODE_DISABLE_AUTOUPDATE=1",
         "-e",
         f"OPENCODE_MODEL={model}",
-        "-e",
-        f"OPENCODE_MESSAGE={prompt}",
         "-v",
         f"{str(workdir)}:/work:rw",
         "-v",
@@ -270,7 +268,7 @@ def _run_opencode_run_in_docker(
     if opencode_auth is not None:
         inner.append('cp /opencode-auth.json "$HOME/.local/share/opencode/auth.json"')
     inner.append(
-        'opencode run -m "$OPENCODE_MODEL" --dir /work "$OPENCODE_MESSAGE" -f /run/spec.md'
+        'opencode run -m "$OPENCODE_MODEL" --dir /work "$(cat /run/prompt.txt)" -f /run/spec.md'
     )
     docker_cmd += [image, "bash", "-lc", " && ".join(inner)]
 
@@ -427,6 +425,9 @@ def cmd_opencode(args: argparse.Namespace) -> int:
         if not prompt:
             prompt = default_prompt
 
+    # Persist the prompt so the container doesn't need to receive it via env.
+    (run_dir / "prompt.txt").write_text(prompt + "\n", encoding="utf-8")
+
     opencode_bin_s = shutil.which("opencode")
     if not opencode_bin_s:
         print("opencode is not installed or not on PATH", file=sys.stderr)
@@ -451,6 +452,13 @@ def cmd_opencode(args: argparse.Namespace) -> int:
         v = os.environ.get(k)
         if v:
             extra_env[k] = v
+
+    if extra_env:
+        keys = ",".join(sorted(extra_env.keys()))
+        (logs_dir / "opencode.forwarded_env.txt").write_text(
+            keys + "\n", encoding="utf-8"
+        )
+        print(f"Forwarding env into agent container: {keys}", file=sys.stderr)
 
     # Run OpenCode in Docker so the agent session is sandboxed similarly to eval.
     try:
