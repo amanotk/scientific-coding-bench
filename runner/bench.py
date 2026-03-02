@@ -9,6 +9,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 from typing import Any
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,156 @@ AGENTS_DEFAULT_PATH = REPO_ROOT / "agents_default.toml"
 def _vprint(enabled: bool, msg: str) -> None:
     if enabled:
         print(msg, file=sys.stderr)
+
+
+def _vsection(enabled: bool, title: str) -> None:
+    if enabled:
+        print(f"\n=== {title} ===", file=sys.stderr)
+
+
+def _run_capture_stream(
+    cmd: list[str],
+    *,
+    timeout_sec: int,
+    verbose: bool,
+    phase: str,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
+    proc = subprocess.Popen(
+        cmd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        env=env,
+    )
+
+    out_parts: list[str] = []
+    err_parts: list[str] = []
+
+    def _drain(pipe: Any, sink: list[str], label: str) -> None:
+        try:
+            for line in iter(pipe.readline, ""):
+                sink.append(line)
+                if verbose:
+                    if line.endswith("\n"):
+                        print(f"[{phase}] {label}: {line}", end="", file=sys.stderr)
+                    else:
+                        print(f"[{phase}] {label}: {line}", file=sys.stderr)
+        finally:
+            pipe.close()
+
+    assert proc.stdout is not None
+    assert proc.stderr is not None
+    t_out = threading.Thread(
+        target=_drain, args=(proc.stdout, out_parts, "stdout"), daemon=True
+    )
+    t_err = threading.Thread(
+        target=_drain, args=(proc.stderr, err_parts, "stderr"), daemon=True
+    )
+    t_out.start()
+    t_err.start()
+
+    try:
+        rc = proc.wait(timeout=timeout_sec)
+    except subprocess.TimeoutExpired as e:
+        proc.kill()
+        proc.wait()
+        t_out.join()
+        t_err.join()
+        raise subprocess.TimeoutExpired(
+            cmd=e.cmd,
+            timeout=e.timeout,
+            output="".join(out_parts),
+            stderr="".join(err_parts),
+        ) from None
+
+    t_out.join()
+    t_err.join()
+    return subprocess.CompletedProcess(
+        cmd,
+        rc,
+        stdout="".join(out_parts),
+        stderr="".join(err_parts),
+    )
+
+
+def _normalize_model_options(
+    agent_name: str, agent_cfg: dict[str, Any]
+) -> dict[str, Any]:
+    raw = agent_cfg.get("model_options", {})
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"Agent {agent_name!r} model_options must be an object")
+    return dict(raw)
+
+
+def _model_options_to_args(options: dict[str, Any]) -> str:
+    tokens: list[str] = []
+    for key in sorted(options.keys()):
+        val = options[key]
+        if val is None:
+            continue
+        flag = f"--{str(key).replace('_', '-')}"
+        if isinstance(val, bool):
+            tokens.append(flag)
+            tokens.append("true" if val else "false")
+        elif isinstance(val, (int, float, str)):
+            tokens.append(flag)
+            tokens.append(str(val))
+        else:
+            tokens.append(flag)
+            tokens.append(json.dumps(val, separators=(",", ":"), sort_keys=True))
+    return " ".join(shlex.quote(tok) for tok in tokens)
+
+
+def _model_options_env(options: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {
+        "BENCH_MODEL_OPTIONS_JSON": json.dumps(
+            options, separators=(",", ":"), sort_keys=True
+        ),
+        "BENCH_MODEL_OPTIONS_ARGS": _model_options_to_args(options),
+    }
+    for key, val in options.items():
+        env_key = (
+            "BENCH_MODEL_OPT_"
+            + "".join(ch if ch.isalnum() else "_" for ch in str(key)).upper()
+        )
+        if val is None:
+            continue
+        if isinstance(val, (dict, list)):
+            out[env_key] = json.dumps(val, separators=(",", ":"), sort_keys=True)
+        elif isinstance(val, bool):
+            out[env_key] = "true" if val else "false"
+        else:
+            out[env_key] = str(val)
+    return out
+
+
+def _inject_model_options_args(cmd: str, options: dict[str, Any]) -> str:
+    rendered = _model_options_to_args(options)
+    return cmd.replace("${BENCH_MODEL_OPTIONS_ARGS}", rendered).replace(
+        "$BENCH_MODEL_OPTIONS_ARGS", rendered
+    )
+
+
+def _print_result_summary(task_ref: str, run_dir: Path, result: dict[str, Any]) -> None:
+    status = result.get("status", "unknown")
+    score = result.get("score", None)
+
+    print(f"[{task_ref}] Result")
+    print(f"- status: {status}")
+    print(f"- score: {score}")
+
+    metrics = result.get("metrics")
+    if isinstance(metrics, dict) and metrics:
+        print("- metrics:")
+        for key in sorted(metrics.keys()):
+            print(f"  {key}: {metrics[key]}")
+
+    print(f"- run_dir: {run_dir}")
 
 
 def _redacted_cmd(cmd: list[str]) -> list[str]:
@@ -343,14 +494,16 @@ def _run_docker_eval(
 
     if cmd_log_path is not None:
         cmd_log_path.write_text(_cmd_str(docker_cmd) + "\n", encoding="utf-8")
-    _vprint(verbose, f"[eval] {_cmd_str(docker_cmd)}")
+    _vsection(verbose, "EVAL PHASE")
+    _vprint(verbose, "[eval] command:")
+    _vprint(verbose, _cmd_str(docker_cmd))
+    _vprint(verbose, "[eval] output:")
 
-    return subprocess.run(
+    return _run_capture_stream(
         docker_cmd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout_sec,
+        timeout_sec=timeout_sec,
+        verbose=verbose,
+        phase="eval",
     )
 
 
@@ -451,6 +604,9 @@ def _run_agent_in_docker(
         "-w",
         "/work",
     ]
+    model_options = _normalize_model_options(agent_name, agent_cfg)
+    for k, v in _model_options_env(model_options).items():
+        docker_cmd += ["-e", f"{k}={v}"]
 
     bins = agent_cfg.get("bins", [])
     if not isinstance(bins, list):
@@ -514,6 +670,7 @@ def _run_agent_in_docker(
         raise ValueError(f"Agent {agent_name!r} missing 'cmd'")
     if pre and not isinstance(pre, list):
         raise ValueError(f"Agent {agent_name!r} pre must be a list")
+    cmd = _inject_model_options_args(cmd, model_options)
 
     inner_parts: list[str] = []
     inner_parts.append('test -f "$BENCH_PROMPT_FILE"')
@@ -525,14 +682,16 @@ def _run_agent_in_docker(
 
     if cmd_log_path is not None:
         cmd_log_path.write_text(_cmd_str(docker_cmd) + "\n", encoding="utf-8")
-    _vprint(verbose, f"[agent:{agent_name}] {_cmd_str(docker_cmd)}")
+    _vsection(verbose, "AGENT PHASE")
+    _vprint(verbose, f"[agent:{agent_name}] command:")
+    _vprint(verbose, _cmd_str(docker_cmd))
+    _vprint(verbose, f"[agent:{agent_name}] output:")
 
-    return subprocess.run(
+    return _run_capture_stream(
         docker_cmd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout_sec,
+        timeout_sec=timeout_sec,
+        verbose=verbose,
+        phase=f"agent:{agent_name}",
     )
 
 
@@ -571,6 +730,8 @@ def _run_agent_on_host(
             "BENCH_SPEC_FILE": str(run_dir / "spec.md"),
         }
     )
+    model_options = _normalize_model_options(agent_name, agent_cfg)
+    env.update(_model_options_env(model_options))
 
     env_kv = agent_cfg.get("env", {})
     if env_kv:
@@ -588,6 +749,7 @@ def _run_agent_on_host(
         raise ValueError(f"Agent {agent_name!r} missing 'cmd'")
     if pre and not isinstance(pre, list):
         raise ValueError(f"Agent {agent_name!r} pre must be a list")
+    cmd = _inject_model_options_args(cmd, model_options)
 
     parts: list[str] = []
     parts.append('test -f "$BENCH_PROMPT_FILE"')
@@ -600,16 +762,18 @@ def _run_agent_on_host(
     cmdline = ["bash", "-lc", " && ".join(parts)]
     if cmd_log_path is not None:
         cmd_log_path.write_text(_cmd_str(cmdline) + "\n", encoding="utf-8")
-    _vprint(verbose, f"[agent:{agent_name}:host] {_cmd_str(cmdline)}")
+    _vsection(verbose, "AGENT PHASE")
+    _vprint(verbose, f"[agent:{agent_name}:host] command:")
+    _vprint(verbose, _cmd_str(cmdline))
+    _vprint(verbose, f"[agent:{agent_name}:host] output:")
 
-    return subprocess.run(
+    return _run_capture_stream(
         cmdline,
+        timeout_sec=timeout_sec,
+        verbose=verbose,
+        phase=f"agent:{agent_name}",
         cwd=workdir,
         env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout_sec,
     )
 
 
@@ -658,6 +822,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         task.task_toml_path.read_text(encoding="utf-8"), encoding="utf-8"
     )
 
+    _vsection(args.verbose, "RUN SETUP")
     _vprint(args.verbose, f"run_id={run_id}")
     _vprint(args.verbose, f"run_dir={run_dir}")
     _vprint(args.verbose, f"workdir={workdir}")
@@ -702,8 +867,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         try:
             result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
             status = result.get("status", "unknown")
-            score = result.get("score", None)
-            print(f"{suite}/{task_id}: status={status} score={score}")
+            _print_result_summary(f"{suite}/{task_id}", run_dir, result)
             if status != "passed":
                 final_rc = 1
         except Exception:
@@ -712,7 +876,6 @@ def cmd_eval(args: argparse.Namespace) -> int:
         print(f"{suite}/{task_id}: eval completed (no result.json found)")
         final_rc = 1
 
-    print(str(run_dir))
     return final_rc
 
 
@@ -853,12 +1016,16 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         print(f"Unknown agent mode: {mode!r} (expected docker|host)", file=sys.stderr)
         return 2
 
-    model = str(agent_cfg.get("default_model", "")).strip()
+    model_source = "model"
+    model = str(agent_cfg.get("model", "")).strip()
+    if not model:
+        model = str(agent_cfg.get("default_model", "")).strip()
+        model_source = "default_model"
     if model:
-        _vprint(args.verbose, f"using default_model from agents config: {model}")
+        _vprint(args.verbose, f"using {model_source} from agents config: {model}")
     if not model:
         print(
-            f"No model configured. Set default_model for agent {agent_name!r} in agents config",
+            f"No model configured. Set model for agent {agent_name!r} in agents config",
             file=sys.stderr,
         )
         return 2
@@ -867,6 +1034,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         model = f"openai/{model}"
         _vprint(args.verbose, f"normalized model for opencode: {before} -> {model}")
 
+    _vsection(args.verbose, "RUN SETUP")
     _vprint(args.verbose, f"run_id={run_id}")
     _vprint(args.verbose, f"run_dir={run_dir}")
     _vprint(args.verbose, f"workdir={workdir}")
@@ -1019,8 +1187,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         try:
             result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
             status = result.get("status", "unknown")
-            score = result.get("score", None)
-            print(f"{suite}/{task_id}: status={status} score={score}")
+            _print_result_summary(f"{suite}/{task_id}", run_dir, result)
             if status != "passed":
                 final_rc = 1
         except Exception:
@@ -1030,7 +1197,6 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         print(f"{suite}/{task_id}: eval completed (no result.json found)")
         final_rc = 1
 
-    print(str(run_dir))
     return final_rc
 
 

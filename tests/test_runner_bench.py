@@ -82,17 +82,20 @@ class TestBenchHelpers(unittest.TestCase):
                 "name": "dummy",
                 "bins": [{"host": "true", "container": "/usr/local/bin/true"}],
                 "mounts": [],
+                "model_options": {"reasoning_effort": "high"},
                 "pre": ["true"],
                 "cmd": "true",
             }
 
             captured = {}
 
-            def fake_run(cmd, **kwargs):
+            def fake_run_capture_stream(cmd, **_kwargs):
                 captured["cmd"] = cmd
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-            with mock.patch.object(bench.subprocess, "run", side_effect=fake_run):
+            with mock.patch.object(
+                bench, "_run_capture_stream", side_effect=fake_run_capture_stream
+            ):
                 bench._run_agent_in_docker(
                     image="scibench:0.1",
                     workdir=workdir,
@@ -111,6 +114,27 @@ class TestBenchHelpers(unittest.TestCase):
             self.assertIn(":/run:ro", cmd)
             self.assertIn("BENCH_AGENT=dummy", cmd)
             self.assertIn("BENCH_MODEL=openai/gpt-5.3-codex", cmd)
+            self.assertIn("BENCH_MODEL_OPTIONS_JSON=", cmd)
+            self.assertIn("BENCH_MODEL_OPTIONS_ARGS=--reasoning-effort high", cmd)
+
+            err = StringIO()
+            with redirect_stderr(err):
+                with mock.patch.object(
+                    bench, "_run_capture_stream", side_effect=fake_run_capture_stream
+                ):
+                    bench._run_agent_in_docker(
+                        image="scibench:0.1",
+                        workdir=workdir,
+                        run_dir=run_dir,
+                        agent_name="dummy",
+                        agent_cfg=agent_cfg,
+                        model="openai/gpt-5.3-codex",
+                        network="off",
+                        timeout_sec=5,
+                        extra_env={"OPENAI_API_KEY": "dummy"},
+                        verbose=True,
+                    )
+            self.assertIn("=== AGENT PHASE ===", err.getvalue())
 
     def test_run_agent_in_docker_allows_no_bins(self):
         with tempfile.TemporaryDirectory() as td:
@@ -128,10 +152,12 @@ class TestBenchHelpers(unittest.TestCase):
                 "cmd": "true",
             }
 
-            def fake_run(cmd, **_kwargs):
+            def fake_run_capture_stream(cmd, **_kwargs):
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-            with mock.patch.object(bench.subprocess, "run", side_effect=fake_run):
+            with mock.patch.object(
+                bench, "_run_capture_stream", side_effect=fake_run_capture_stream
+            ):
                 bench._run_agent_in_docker(
                     image="scibench:0.1",
                     workdir=workdir,
@@ -164,12 +190,14 @@ class TestBenchHelpers(unittest.TestCase):
 
             captured = {}
 
-            def fake_run(cmd, **kwargs):
+            def fake_run_capture_stream(cmd, **kwargs):
                 captured["cmd"] = cmd
                 captured["cwd"] = kwargs.get("cwd")
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-            with mock.patch.object(bench.subprocess, "run", side_effect=fake_run):
+            with mock.patch.object(
+                bench, "_run_capture_stream", side_effect=fake_run_capture_stream
+            ):
                 bench._run_agent_on_host(
                     workdir=workdir,
                     run_dir=run_dir,
@@ -210,6 +238,49 @@ class TestBenchHelpers(unittest.TestCase):
                 )
             self.assertIn("-it", captured["cmd"])
 
+    def test_run_capture_stream_verbose_streams_realtime(self):
+        err = StringIO()
+        with redirect_stderr(err):
+            proc = bench._run_capture_stream(
+                [
+                    "bash",
+                    "-lc",
+                    "python3 -c \"import sys; print('hi'); print('oops', file=sys.stderr)\"",
+                ],
+                timeout_sec=10,
+                verbose=True,
+                phase="test-phase",
+            )
+
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("hi", proc.stdout)
+        self.assertIn("oops", proc.stderr)
+        streamed = err.getvalue()
+        self.assertIn("[test-phase] stdout: hi", streamed)
+        self.assertIn("[test-phase] stderr: oops", streamed)
+
+    def test_model_options_render_args(self):
+        args = bench._model_options_to_args(
+            {
+                "reasoning_effort": "high",
+                "max_output_tokens": 1200,
+            }
+        )
+        self.assertIn("--reasoning-effort high", args)
+        self.assertIn("--max-output-tokens 1200", args)
+
+    def test_inject_model_options_args_preserves_spaced_values(self):
+        cmd = 'tool run $BENCH_MODEL_OPTIONS_ARGS --flag "x"'
+        rendered = bench._inject_model_options_args(
+            cmd,
+            {
+                "reasoning_effort": "high",
+                "label": "hello world",
+            },
+        )
+        self.assertIn("--reasoning-effort high", rendered)
+        self.assertIn("--label 'hello world'", rendered)
+
 
 class TestBenchCLIFlow(unittest.TestCase):
     def test_agent_flow_writes_prompt_and_forwarded_env_log(self):
@@ -241,7 +312,7 @@ version = 1
 [agents.dummy]
 mode = "docker"
 enabled_by_default = false
-default_model = "provider/model-x"
+model = "provider/model-x"
 pass_env = ["OPENAI_API_KEY"]
 pre = []
 cmd = "true"
@@ -311,6 +382,120 @@ cmd = "true"
             self.assertTrue((run_dir / "prompt.txt").exists())
             self.assertTrue((run_dir / "logs" / "agent.forwarded_env.txt").exists())
 
+    def test_verbose_prints_result_summary(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            agents_default_path = td_path / "agents_default.toml"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_default_path.write_text(
+                """
+version = 1
+
+[agents.opencode]
+mode = "docker"
+enabled_by_default = true
+model = "openai/gpt-5.3-codex"
+pass_env = []
+pre = []
+cmd = "true"
+
+[[agents.opencode.bins]]
+host = "true"
+container = "/usr/local/bin/true"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_toml = td_path / "opencode.toml"
+            _write_agent_toml(
+                agents_toml,
+                """
+name = "opencode"
+""".lstrip(),
+            )
+
+            def fake_agent(*args, **kwargs):
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="agent stdout line\n",
+                    stderr="agent stderr line\n",
+                )
+
+            def fake_eval(*, workdir: Path, **_kwargs):
+                (workdir / "result.json").write_text(
+                    json.dumps(
+                        {
+                            "status": "passed",
+                            "score": 1.0,
+                            "metrics": {"cases": 3, "elapsed_sec": 0.12},
+                        }
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout="eval stdout line\n",
+                    stderr="eval stderr line\n",
+                )
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.object(
+                    bench, "_run_agent_in_docker", side_effect=fake_agent
+                ),
+                mock.patch.object(bench, "_run_docker_eval", side_effect=fake_eval),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(
+                        [
+                            "--verbose",
+                            "run",
+                            str(agents_toml),
+                            "s/t",
+                            "--image",
+                            "scibench:0.1",
+                        ]
+                    )
+
+            self.assertEqual(rc, 0)
+
+            stdout_text = out.getvalue()
+            self.assertIn("[s/t] Result", stdout_text)
+            self.assertIn("- status: passed", stdout_text)
+            self.assertIn("- score: 1.0", stdout_text)
+            self.assertIn("- metrics:", stdout_text)
+            self.assertIn("cases: 3", stdout_text)
+            self.assertIn("elapsed_sec: 0.12", stdout_text)
+            self.assertIn("- run_dir:", stdout_text)
+
+            stderr_text = err.getvalue()
+            self.assertIn("=== RUN SETUP ===", stderr_text)
+
     def test_convenience_form_toml_prefix_maps_to_run(self):
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
@@ -338,7 +523,7 @@ version = 1
 [agents.opencode]
 mode = "docker"
 enabled_by_default = true
-default_model = "openai/gpt-5.3-codex"
+model = "openai/gpt-5.3-codex"
 pass_env = []
 pre = []
 cmd = "true"

@@ -74,8 +74,21 @@ Verbose run:
 python3 runner/bench.py --verbose run sample/opencode.toml demo/py-add-001 --image scibench:0.1
 ```
 
+In verbose mode, the runner streams full agent/eval `stdout` and `stderr`
+in real time to stderr with phase labels (for example
+`[agent:opencode] stdout: ...`, `[eval] stderr: ...`).
+It also separates logs into readable sections like `RUN SETUP`,
+`AGENT PHASE`, and `EVAL PHASE`.
+
 Model/command/tool settings come from agent TOML. The selected TOML overrides
 defaults from `agents_default.toml`.
+
+You can set model-level options in agent TOML via `model_options`.
+These are exposed to agent commands as:
+
+- `BENCH_MODEL_OPTIONS_JSON` (JSON object)
+- `$BENCH_MODEL_OPTIONS_ARGS` placeholder in `cmd` is replaced by the runner with
+  shell-escaped CLI flags (e.g. `--reasoning-effort high`)
 
 Enable non-default agents via env vars:
 
@@ -92,7 +105,7 @@ This runs agent sessions in Docker by mounting:
 - the task workdir at `/work`
 - the run metadata (including `spec.md`) at `/run` (read-only)
 - optional host agent config files as defined in merged config
-- for OpenCode, optional host config `~/.config/opencode/opencode.json`
+- for OpenCode, optional host config `~/.config/opencode/opencode.json` or `~/.config/opencode/opencode.jsonc`
 - for Claude, optional `~/.claude/settings.json`
 - for Codex, optional `~/.codex/auth.json`
 - for Copilot, optional `~/.copilot/config.json`
@@ -101,6 +114,8 @@ This runs agent sessions in Docker by mounting:
 
 - Network is configurable per run (`--network on|off`).
 - Use `--result-dir` on `prepare/shell/run/eval` to control artifact location.
+- Final console output includes a compact result summary (status, score,
+  optional metrics, and run directory).
 
 ## Docs
 

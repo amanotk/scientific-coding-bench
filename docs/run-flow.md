@@ -83,7 +83,14 @@ This is shorthand for `run`. The runner uses the selected TOML to:
 
 - decide which optional host config files to mount into the agent container
 - decide what command to run for that agent
-- choose `default_model`
+- choose `model`
+
+Optional model tuning can be passed through agent TOML `model_options`.
+The runner exposes these to agent commands as:
+
+- `BENCH_MODEL_OPTIONS_JSON` (JSON)
+- `$BENCH_MODEL_OPTIONS_ARGS` placeholder in agent `cmd` (runner-injected,
+  shell-escaped CLI flags)
 
 To run different agents, prepare different TOML files and pass one as the first
 positional argument. Enable non-default agents via env vars.
@@ -150,6 +157,8 @@ OpenCode config file (optional):
 
 - If `~/.config/opencode/opencode.json` exists, it is mounted into the agent
   container and `OPENCODE_CONFIG` points to it.
+- Otherwise, if `~/.config/opencode/opencode.jsonc` exists, it is mounted and
+  `OPENCODE_CONFIG` points to that file.
 
 Other agent local files (sample defaults):
 
@@ -194,6 +203,13 @@ Minimum fields:
 
 Optional `metrics` may be added for timings, accuracy, etc.
 
+The runner prints a compact terminal summary after evaluation:
+
+- `status`
+- `score`
+- optional `metrics`
+- `run_dir`
+
 
 ## Verbose Mode
 
@@ -203,3 +219,15 @@ to stderr:
 ```bash
 python3 runner/bench.py --verbose run sample/opencode.toml <suite>/<task_id>
 ```
+
+Verbose mode also streams full process output in real time for both phases,
+with phase+stream prefixes:
+
+- `[agent:<name>] stdout: ...` and `[agent:<name>] stderr: ...`
+- `[eval] stdout: ...` and `[eval] stderr: ...`
+
+Verbose logs are grouped into sections to improve readability:
+
+- `RUN SETUP`
+- `AGENT PHASE`
+- `EVAL PHASE`
