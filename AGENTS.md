@@ -32,6 +32,7 @@ python3 runner/bench.py list
 python3 runner/bench.py prepare demo/py-add-001
 python3 runner/bench.py shell demo/py-add-001 --image scibench:0.1
 python3 runner/bench.py run demo/py-add-001 --image scibench:0.1
+python3 runner/bench.py opencode demo/py-add-001 --image scibench:0.1 -m openai/gpt-5.3-codex
 ```
 
 Network tracks:
@@ -52,6 +53,8 @@ Run tests via the runner's shell command (no need to manually `cd`):
 ```bash
 python3 runner/bench.py shell demo/py-add-001 --image scibench:0.1 -- pytest -q
 ```
+
+Note: use `--` before a command that has flags (e.g. `-q`, `-k`).
 
 Run a single test (preferred when iterating):
 
@@ -81,6 +84,9 @@ Lint (not enforced yet):
 python3 -m py_compile runner/bench.py
 ```
 
+Timeouts:
+- `--timeout-sec` is used as the per-phase timeout for both the OpenCode one-shot and the eval harness.
+
 
 ## Common Workflows
 
@@ -96,6 +102,7 @@ Debug a task locally: use `bench.py shell` to iterate, then `bench.py run` to sc
 
 - The runner mounts the task workspace at `/work` (read/write).
 - The runner mounts the eval harness at `/eval` (read-only) during `run`.
+- The `opencode` subcommand runs the agent inside Docker by bind-mounting the host `opencode` binary and (if present) `~/.local/share/opencode/auth.json`.
 - Use `--network off` for an offline track (Docker `--network none`).
 - Keep benchmark workspaces free of secrets; with network enabled, assume the agent can exfiltrate anything it can read.
 
@@ -125,6 +132,7 @@ Python (runner, `runner/`):
 Task metadata (`task.json`):
 - JSON, 2-space indent, stable semantics.
 - Suggested keys: `id`, `suite`, `language` (python|cpp|fortran), `time_limit_sec`, `eval_cmd`.
+- Optional keys: `prompt` (string) or `prompt_file` (path relative to the task dir).
 
 Task workspace (`workspace/`):
 - Treat as a template; runner copies it to `runs/<run_id>/.../workdir/`.

@@ -3,5 +3,6 @@
   "suite": "demo",
   "language": "python",
   "time_limit_sec": 60,
-  "eval_cmd": "/eval/run.sh"
+  "eval_cmd": "/eval/run.sh",
+  "prompt": "Read the attached spec.md and solve the task."
 }

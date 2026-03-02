@@ -11,6 +11,13 @@ Edit the code in this workspace so that:
 
 You may run commands (e.g. `pytest`) while working.
 
+If your host environment does not have the right toolchain, you can run tests in
+the benchmark Docker image:
+
+```bash
+docker run --rm -v "$PWD":/work -w /work scibench:0.1 bash -lc "pytest -q"
+```
+
 ## Constraints
 
 - Keep the implementation small and readable.
