@@ -44,12 +44,21 @@ mode = "docker"
 enabled_by_default = false
 default_model = "claude-sonnet-4-6"
 pass_env = ["ANTHROPIC_API_KEY"]
-pre = []
+pre = [
+  "mkdir -p \"$HOME/.claude\"",
+  "if [ -f /claude-settings.json ]; then cp /claude-settings.json \"$HOME/.claude/settings.json\"; fi",
+]
 cmd = "claude -p --permission-mode bypassPermissions --tools default --add-dir \"$BENCH_WORKDIR\" --add-dir \"$BENCH_RUN_DIR\" --model \"${BENCH_MODEL##*/}\" \"$(cat \"$BENCH_PROMPT_FILE\")\""
 
 [[agents.claude.bins]]
 host = "claude"
 container = "/usr/local/bin/claude"
+
+[[agents.claude.mounts]]
+host = "~/.claude/settings.json"
+container = "/claude-settings.json"
+mode = "ro"
+optional = true
 
 [agents.codex]
 mode = "host"
