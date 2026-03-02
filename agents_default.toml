@@ -18,7 +18,7 @@ pre = [
   "if [ -f /opencode-auth.json ]; then cp /opencode-auth.json \"$HOME/.local/share/opencode/auth.json\"; fi",
   "if [ -f /opencode-config.json ]; then export OPENCODE_CONFIG=/opencode-config.json; fi",
 ]
-cmd = "opencode run -m \"$BENCH_MODEL\" --dir \"$BENCH_WORKDIR\" \"$(cat \\\"$BENCH_PROMPT_FILE\\\")\" -f \"$BENCH_SPEC_FILE\""
+cmd = "opencode run -m \"$BENCH_MODEL\" --dir \"$BENCH_WORKDIR\" \"$(cat \"$BENCH_PROMPT_FILE\")\" -f \"$BENCH_SPEC_FILE\""
 
 [agents.opencode.env]
 OPENCODE_DISABLE_AUTOUPDATE = "1"
@@ -45,7 +45,7 @@ enabled_by_default = false
 default_model = "claude-sonnet-4-6"
 pass_env = ["ANTHROPIC_API_KEY"]
 pre = []
-cmd = "claude -p --permission-mode bypassPermissions --tools default --add-dir \"$BENCH_WORKDIR\" --add-dir \"$BENCH_RUN_DIR\" --model \"${BENCH_MODEL##*/}\" \"$(cat \\\"$BENCH_PROMPT_FILE\\\")\""
+cmd = "claude -p --permission-mode bypassPermissions --tools default --add-dir \"$BENCH_WORKDIR\" --add-dir \"$BENCH_RUN_DIR\" --model \"${BENCH_MODEL##*/}\" \"$(cat \"$BENCH_PROMPT_FILE\")\""
 
 [[agents.claude.bins]]
 host = "claude"
@@ -57,7 +57,7 @@ enabled_by_default = false
 default_model = "gpt-5.3-codex"
 pass_env = ["OPENAI_API_KEY"]
 pre = []
-cmd = "codex exec --ephemeral --full-auto --skip-git-repo-check -C \"$BENCH_WORKDIR\" -m \"${BENCH_MODEL##*/}\" \"$(cat \\\"$BENCH_PROMPT_FILE\\\")\""
+cmd = "codex exec --ephemeral --full-auto --skip-git-repo-check -C \"$BENCH_WORKDIR\" -m \"${BENCH_MODEL##*/}\" \"$(cat \"$BENCH_PROMPT_FILE\")\""
 
 [[agents.codex.bins]]
 host = "codex"
@@ -69,7 +69,7 @@ enabled_by_default = false
 default_model = "gpt-5.3-codex"
 pass_env = ["GITHUB_TOKEN"]
 pre = []
-cmd = "copilot --no-ask-user --allow-all-tools --allow-all-paths --model \"${BENCH_MODEL##*/}\" -p \"$(cat \\\"$BENCH_PROMPT_FILE\\\")\""
+cmd = "copilot --no-ask-user --allow-all-tools --allow-all-paths --model \"${BENCH_MODEL##*/}\" -p \"$(cat \"$BENCH_PROMPT_FILE\")\""
 
 [[agents.copilot.bins]]
 host = "copilot"
