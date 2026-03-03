@@ -1173,7 +1173,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     task = _load_task(suite, task_id)
 
     try:
-        agent_cfg = _load_agent_config(Path(str(args.agents)))
+        _load_agent_config(Path(str(args.agents)))
     except Exception as e:
         print(f"Failed to load agent config: {e}", file=sys.stderr)
         return 2
@@ -1205,7 +1205,7 @@ def cmd_shell(args: argparse.Namespace) -> int:
     task = _load_task(suite, task_id)
 
     try:
-        agent_cfg = _load_agent_config(Path(str(args.agents)))
+        _load_agent_config(Path(str(args.agents)))
     except Exception as e:
         print(f"Failed to load agent config: {e}", file=sys.stderr)
         return 2

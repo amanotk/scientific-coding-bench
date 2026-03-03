@@ -72,15 +72,22 @@ jobs:
       - name: Fortran format check
         shell: bash
         run: |
-          files="$(git ls-files '*.f90' '*.f95' '*.f03' '*.fpp' '*.F90' '*.F95' '*.F03' '*.FPP')"
-          if [ -z "$files" ]; then
+          mapfile -t files < <(git ls-files '*.f90' '*.f95' '*.f03' '*.fpp' '*.F90' '*.F95' '*.F03' '*.FPP')
+          if [ "${#files[@]}" -eq 0 ]; then
             exit 0
           fi
 
-          tmp_file="$(mktemp)"
-          uvx fprettify -d $files > "$tmp_file"
-          if [ -s "$tmp_file" ]; then
-            cat "$tmp_file"
+          failed=0
+          for file in "${files[@]}"; do
+            formatted_file="$(mktemp)"
+            uvx fprettify -s "$file" > "$formatted_file"
+            if ! diff -u "$file" "$formatted_file"; then
+              failed=1
+            fi
+            rm -f "$formatted_file"
+          done
+
+          if [ "$failed" -ne 0 ]; then
             echo "Fortran sources are not formatted with fprettify."
             exit 1
           fi
