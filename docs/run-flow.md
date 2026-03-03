@@ -93,13 +93,7 @@ The runner exposes these to agent commands as:
   shell-escaped CLI flags)
 
 To run different agents, prepare different TOML files and pass one as the first
-positional argument. Enable non-default agents via env vars.
-
-Enable non-default agents via env vars, for example:
-
-- `SCIBENCH_ENABLE_CLAUDE=1`
-- `SCIBENCH_ENABLE_CODEX=1`
-- `SCIBENCH_ENABLE_COPILOT=1`
+positional argument.
 
 Agents can run in two modes:
 
@@ -202,6 +196,11 @@ Minimum fields:
 ```
 
 Optional `metrics` may be added for timings, accuracy, etc.
+
+Runner-added timing metrics:
+
+- `agent_inner_sec`: agent command runtime inside the container (excludes Docker startup)
+- `eval_inner_sec`: eval command runtime inside the container (excludes Docker startup)
 
 The runner prints a compact terminal summary after evaluation:
 

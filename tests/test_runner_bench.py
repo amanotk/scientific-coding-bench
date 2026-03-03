@@ -54,21 +54,6 @@ class TestBenchHelpers(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bench._load_agent_config(p)
 
-    def test_is_agent_enabled_requires_env_for_non_default(self):
-        cfg = {"name": "codex"}
-        with mock.patch.dict(os.environ, {"SCIBENCH_ENABLE_CODEX": "0"}, clear=False):
-            enabled, reason = bench._is_agent_enabled(cfg)
-        self.assertFalse(enabled)
-        self.assertIn("SCIBENCH_ENABLE_CODEX", reason)
-
-    def test_is_agent_enabled_opencode_default_true(self):
-        cfg = {"name": "opencode"}
-        with mock.patch.dict(
-            os.environ, {"SCIBENCH_ENABLE_OPENCODE": "0"}, clear=False
-        ):
-            enabled, _reason = bench._is_agent_enabled(cfg)
-        self.assertTrue(enabled)
-
     def test_run_agent_in_docker_builds_expected_command(self):
         with tempfile.TemporaryDirectory() as td:
             workdir = Path(td) / "work"
@@ -281,6 +266,19 @@ class TestBenchHelpers(unittest.TestCase):
         self.assertIn("--reasoning-effort high", rendered)
         self.assertIn("--label 'hello world'", rendered)
 
+    def test_timed_bash_script_does_not_require_python(self):
+        script = bench._timed_bash_script("true")
+        self.assertNotIn("python3", script)
+        self.assertIn("__BENCH_T0__", script)
+        self.assertIn("__BENCH_T1__", script)
+
+    def test_extract_inner_sec_from_timepoint_markers(self):
+        text = "__BENCH_T0__=100.125\n__BENCH_T1__=100.500\n"
+        dt = bench._extract_inner_sec(text)
+        self.assertIsNotNone(dt)
+        assert dt is not None
+        self.assertAlmostEqual(dt, 0.375, places=6)
+
 
 class TestBenchCLIFlow(unittest.TestCase):
     def test_agent_flow_writes_prompt_and_forwarded_env_log(self):
@@ -335,7 +333,7 @@ cmd = "true"
 
             def fake_agent(*args, **kwargs):
                 cmd = ["docker", "run"]
-                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""), 0.01
 
             def fake_eval(*, workdir: Path, **_kwargs):
                 (workdir / "result.json").write_text(
@@ -343,7 +341,7 @@ cmd = "true"
                     encoding="utf-8",
                 )
                 cmd = ["docker", "run"]
-                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""), 0.02
 
             with (
                 mock.patch.object(bench, "BENCH_ROOT", bench_root),
@@ -358,7 +356,6 @@ cmd = "true"
                     os.environ,
                     {
                         "OPENAI_API_KEY": "dummy",
-                        "SCIBENCH_ENABLE_DUMMY": "1",
                     },
                     clear=False,
                 ):
@@ -432,11 +429,14 @@ name = "opencode"
 
             def fake_agent(*args, **kwargs):
                 cmd = ["docker", "run"]
-                return subprocess.CompletedProcess(
-                    cmd,
-                    0,
-                    stdout="agent stdout line\n",
-                    stderr="agent stderr line\n",
+                return (
+                    subprocess.CompletedProcess(
+                        cmd,
+                        0,
+                        stdout="agent stdout line\n",
+                        stderr="agent stderr line\n",
+                    ),
+                    0.03,
                 )
 
             def fake_eval(*, workdir: Path, **_kwargs):
@@ -452,11 +452,14 @@ name = "opencode"
                     encoding="utf-8",
                 )
                 cmd = ["docker", "run"]
-                return subprocess.CompletedProcess(
-                    cmd,
-                    0,
-                    stdout="eval stdout line\n",
-                    stderr="eval stderr line\n",
+                return (
+                    subprocess.CompletedProcess(
+                        cmd,
+                        0,
+                        stdout="eval stdout line\n",
+                        stderr="eval stderr line\n",
+                    ),
+                    0.04,
                 )
 
             with (
@@ -545,7 +548,7 @@ name = "opencode"
 
             def fake_agent(*args, **kwargs):
                 cmd = ["docker", "run"]
-                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""), 0.01
 
             def fake_eval(*, workdir: Path, **_kwargs):
                 (workdir / "result.json").write_text(
@@ -553,7 +556,7 @@ name = "opencode"
                     encoding="utf-8",
                 )
                 cmd = ["docker", "run"]
-                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""), 0.02
 
             with (
                 mock.patch.object(bench, "BENCH_ROOT", bench_root),
@@ -567,6 +570,110 @@ name = "opencode"
                 rc = bench.main([str(agents_toml), "s/t", "--image", "scibench:0.1"])
 
             self.assertEqual(rc, 0)
+
+
+class TestBenchCheckCommand(unittest.TestCase):
+    def test_check_passes_for_minimal_valid_task(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace" / "tests").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+            run_sh = task_dir / "eval" / "run.sh"
+            run_sh.write_text(
+                "#!/usr/bin/env bash\npython3 - <<'PY'\nopen('result.json','w').write('{}\\n')\nPY\n",
+                encoding="utf-8",
+            )
+            os.chmod(run_sh, 0o755)
+
+            with mock.patch.object(bench, "BENCH_ROOT", bench_root):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(["check", "s/t"])
+
+            self.assertEqual(rc, 0)
+            self.assertIn("[s/t] PASS", out.getvalue())
+
+    def test_check_fails_for_missing_required_fields(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+
+            (task_dir / "spec.md").write_text(
+                "spec without heading\n", encoding="utf-8"
+            )
+            (task_dir / "task.toml").write_text(
+                """
+id = "wrong"
+suite = "wrong"
+language = "rust"
+time_limit_sec = 0
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(bench, "BENCH_ROOT", bench_root):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(["check", "s/t"])
+
+            self.assertEqual(rc, 1)
+            stdout_text = out.getvalue()
+            self.assertIn("[s/t] FAIL", stdout_text)
+            self.assertIn("task.toml id must match directory name", stdout_text)
+            self.assertIn("task.toml suite must match directory name", stdout_text)
+            self.assertIn("task.toml language must be one of", stdout_text)
+            self.assertIn("time_limit_sec must be a positive integer", stdout_text)
+            self.assertIn("eval/run.sh but eval/run.sh is missing", stdout_text)
+
+    def test_check_reports_workspace_not_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            task_dir = bench_root / "s" / "t"
+            task_dir.mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+            (task_dir / "workspace").write_text("not a dir\n", encoding="utf-8")
+            (task_dir / "eval").mkdir()
+
+            with mock.patch.object(bench, "BENCH_ROOT", bench_root):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(["check", "s/t"])
+
+            self.assertEqual(rc, 1)
+            self.assertIn("[s/t] FAIL", out.getvalue())
+            self.assertIn("workspace/ must be a directory", out.getvalue())
 
 
 class TestAgentBinaries(unittest.TestCase):

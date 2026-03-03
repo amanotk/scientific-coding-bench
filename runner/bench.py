@@ -2,14 +2,17 @@
 
 import argparse
 import datetime as _dt
+import decimal
 import json
 import os
+import re
 import secrets
 import shlex
 import shutil
 import subprocess
 import sys
 import threading
+import time
 from typing import Any
 from dataclasses import dataclass
 from pathlib import Path
@@ -183,6 +186,100 @@ def _print_result_summary(task_ref: str, run_dir: Path, result: dict[str, Any]) 
 
     print(f"- run_dir: {run_dir}")
 
+    agent_path = run_dir / "agent.toml"
+    if agent_path.exists() and agent_path.is_file() and _toml_lib is not None:
+        try:
+            agent_cfg = _toml_lib.loads(agent_path.read_text(encoding="utf-8"))
+        except Exception:
+            agent_cfg = {}
+        if isinstance(agent_cfg, dict):
+            print("- agent")
+            name = agent_cfg.get("name")
+            if isinstance(name, str) and name.strip():
+                print(f'  name: "{name}"')
+            model = agent_cfg.get("model")
+            if isinstance(model, str) and model.strip():
+                print(f'  model: "{model}"')
+            model_options = agent_cfg.get("model_options")
+            if isinstance(model_options, dict) and model_options:
+                for key in sorted(model_options.keys()):
+                    val = model_options[key]
+                    if isinstance(val, str):
+                        rendered = f'"{val}"'
+                    elif isinstance(val, bool):
+                        rendered = "true" if val else "false"
+                    elif isinstance(val, (int, float)):
+                        rendered = str(val)
+                    else:
+                        rendered = json.dumps(
+                            val, ensure_ascii=True, separators=(",", ":")
+                        )
+                    print(f"  {key}: {rendered}")
+
+
+_INNER_SEC_RE = re.compile(r"^__BENCH_INNER_SEC__=([0-9]+(?:\.[0-9]+)?)$", re.MULTILINE)
+_TIMEPOINT_RE = re.compile(
+    r"^__(BENCH_T0|BENCH_T1)__=([0-9]+(?:\.[0-9]+)?)$", re.MULTILINE
+)
+
+
+def _timed_bash_script(cmd: str) -> str:
+    return (
+        'if [ -n "${EPOCHREALTIME:-}" ]; then __bench_t0="$EPOCHREALTIME"; '
+        'else __bench_t0="$(date +%s.%N 2>/dev/null || date +%s)"; fi; '
+        f"({cmd}); __bench_rc=$?; "
+        'if [ -n "${EPOCHREALTIME:-}" ]; then __bench_t1="$EPOCHREALTIME"; '
+        'else __bench_t1="$(date +%s.%N 2>/dev/null || date +%s)"; fi; '
+        'printf "__BENCH_T0__=%s\\n__BENCH_T1__=%s\\n" "$__bench_t0" "$__bench_t1"; '
+        'exit "$__bench_rc"'
+    )
+
+
+def _extract_inner_sec(*texts: str) -> float | None:
+    t0: decimal.Decimal | None = None
+    t1: decimal.Decimal | None = None
+
+    for text in texts:
+        if not text:
+            continue
+        for kind, value in _TIMEPOINT_RE.findall(text):
+            try:
+                parsed = decimal.Decimal(value)
+            except decimal.InvalidOperation:
+                continue
+            if kind == "BENCH_T0":
+                t0 = parsed
+            elif kind == "BENCH_T1":
+                t1 = parsed
+
+    if t0 is not None and t1 is not None:
+        dt = t1 - t0
+        if dt < 0:
+            return 0.0
+        return float(dt)
+
+    for text in texts:
+        if not text:
+            continue
+        m = _INNER_SEC_RE.search(text)
+        if not m:
+            continue
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def _append_metric(result: dict[str, Any], key: str, value: float | None) -> None:
+    if value is None:
+        return
+    metrics = result.get("metrics")
+    if not isinstance(metrics, dict):
+        metrics = {}
+    metrics[key] = round(float(value), 6)
+    result["metrics"] = metrics
+
 
 def _redacted_cmd(cmd: list[str]) -> list[str]:
     out: list[str] = []
@@ -210,18 +307,6 @@ def _cmd_str(cmd: list[str]) -> str:
 
 def _expand_path(s: str) -> str:
     return os.path.expandvars(os.path.expanduser(s))
-
-
-def _is_env_true(name: str) -> bool:
-    v = os.environ.get(name)
-    if v is None:
-        return False
-    return v.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _agent_enable_env_key(name: str) -> str:
-    slug = "".join(ch if ch.isalnum() else "_" for ch in name).upper()
-    return f"SCIBENCH_ENABLE_{slug}"
 
 
 def _resolve_input_toml_path(path: Path) -> Path:
@@ -286,21 +371,6 @@ def _load_agent_config(path: Path) -> dict[str, Any]:
     merged = _deep_merge(base, filtered)
     merged["name"] = name
     return merged
-
-
-def _is_agent_enabled(cfg: dict[str, Any]) -> tuple[bool, str]:
-    name = str(cfg.get("name", "")).strip()
-    if not name:
-        return False, "agent config missing required 'name'"
-
-    enable_env = _agent_enable_env_key(name)
-    enabled_by_default = bool(cfg.get("enabled_by_default", name == "opencode"))
-    enabled = enabled_by_default or _is_env_true(enable_env)
-    if not enabled:
-        return False, (
-            f"Agent {name!r} is disabled by default; export {enable_env}=1 to enable"
-        )
-    return True, ""
 
 
 def _resolve_host_executable(spec: str) -> Path:
@@ -385,6 +455,133 @@ def cmd_list(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _check_task(task: Task) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if not task.spec_path.is_file():
+        errors.append("spec.md must be a file")
+    if not task.task_toml_path.is_file():
+        errors.append("task.toml must be a file")
+    if not task.workspace_tpl.is_dir():
+        errors.append("workspace/ must be a directory")
+    if not task.eval_dir.is_dir():
+        errors.append("eval/ must be a directory")
+
+    meta = task.meta
+    required_keys = ["id", "suite", "language", "time_limit_sec", "eval_cmd"]
+    for key in required_keys:
+        if key not in meta:
+            errors.append(f"task.toml missing required key: {key}")
+
+    if str(meta.get("id", "")).strip() != task.task_id:
+        errors.append(
+            f"task.toml id must match directory name: expected {task.task_id!r}"
+        )
+
+    if str(meta.get("suite", "")).strip() != task.suite:
+        errors.append(
+            f"task.toml suite must match directory name: expected {task.suite!r}"
+        )
+
+    language = str(meta.get("language", "")).strip()
+    if language and language not in {"python", "cpp", "fortran"}:
+        errors.append("task.toml language must be one of: python, cpp, fortran")
+
+    try:
+        time_limit = int(meta.get("time_limit_sec", 0))
+        if time_limit <= 0:
+            errors.append("task.toml time_limit_sec must be a positive integer")
+    except Exception:
+        errors.append("task.toml time_limit_sec must be an integer")
+
+    eval_cmd = str(meta.get("eval_cmd", "")).strip()
+    if not eval_cmd:
+        errors.append("task.toml eval_cmd must be a non-empty string")
+
+    prompt_file = str(meta.get("prompt_file", "")).strip()
+    if prompt_file:
+        p = task.path / prompt_file
+        if not p.exists() or not p.is_file():
+            errors.append(f"prompt_file not found: {p}")
+
+    if task.spec_path.is_file():
+        spec_text = task.spec_path.read_text(encoding="utf-8").strip()
+        if not spec_text:
+            errors.append("spec.md must not be empty")
+        elif "#" not in spec_text.splitlines()[0]:
+            warnings.append("spec.md first line is not a Markdown heading")
+
+    if task.workspace_tpl.is_dir():
+        if not any(task.workspace_tpl.iterdir()):
+            warnings.append("workspace/ is empty")
+
+    public_tests = task.workspace_tpl / "tests"
+    if task.workspace_tpl.is_dir() and (
+        not public_tests.exists() or not public_tests.is_dir()
+    ):
+        warnings.append("workspace/tests/ not found (no public tests)")
+
+    run_sh = task.eval_dir / "run.sh"
+    if eval_cmd == "/eval/run.sh" and not run_sh.exists():
+        errors.append("eval_cmd points to /eval/run.sh but eval/run.sh is missing")
+    if run_sh.exists():
+        if not run_sh.is_file():
+            errors.append("eval/run.sh exists but is not a file")
+        elif not os.access(run_sh, os.X_OK):
+            errors.append("eval/run.sh is not executable")
+
+        run_text = run_sh.read_text(encoding="utf-8", errors="replace")
+        if not run_text.startswith("#!/usr/bin/env bash"):
+            warnings.append("eval/run.sh should start with '#!/usr/bin/env bash'")
+        if "result.json" not in run_text:
+            warnings.append("eval/run.sh does not appear to write result.json")
+
+    return errors, warnings
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    task_refs: list[tuple[str, str]] = []
+
+    if args.task:
+        if "/" not in args.task:
+            print("Task must be in the form <suite>/<task_id>", file=sys.stderr)
+            return 2
+        task_refs.append(tuple(args.task.split("/", 1)))
+    else:
+        task_refs.extend(_iter_tasks())
+
+    if not task_refs:
+        print("No tasks found under benchmarks/", file=sys.stderr)
+        return 2
+
+    had_errors = False
+
+    for suite, task_id in task_refs:
+        label = f"{suite}/{task_id}"
+        try:
+            task = _load_task(suite, task_id)
+        except Exception as e:
+            print(f"[{label}] FAIL")
+            print(f"- error: {e}")
+            had_errors = True
+            continue
+
+        errors, warnings = _check_task(task)
+        if errors:
+            had_errors = True
+            print(f"[{label}] FAIL")
+            for e in errors:
+                print(f"- error: {e}")
+        else:
+            print(f"[{label}] PASS")
+
+        for w in warnings:
+            print(f"- warning: {w}")
+
+    return 1 if had_errors else 0
+
+
 def _resolve_result_dir(*, task: Task, run_id: str, result_dir: str) -> Path:
     if result_dir.strip():
         p = Path(_expand_path(result_dir))
@@ -450,7 +647,7 @@ def _run_docker_eval(
     extra_env: dict[str, str] | None = None,
     verbose: bool = False,
     cmd_log_path: Path | None = None,
-) -> subprocess.CompletedProcess:
+) -> tuple[subprocess.CompletedProcess, float | None]:
     uid = os.getuid() if hasattr(os, "getuid") else 1000
     gid = os.getgid() if hasattr(os, "getgid") else 1000
 
@@ -490,7 +687,7 @@ def _run_docker_eval(
         for k, v in extra_env.items():
             docker_cmd += ["-e", f"{k}={v}"]
 
-    docker_cmd += [image, "bash", "-lc", eval_cmd]
+    docker_cmd += [image, "bash", "-lc", _timed_bash_script(eval_cmd)]
 
     if cmd_log_path is not None:
         cmd_log_path.write_text(_cmd_str(docker_cmd) + "\n", encoding="utf-8")
@@ -499,12 +696,13 @@ def _run_docker_eval(
     _vprint(verbose, _cmd_str(docker_cmd))
     _vprint(verbose, "[eval] output:")
 
-    return _run_capture_stream(
+    proc = _run_capture_stream(
         docker_cmd,
         timeout_sec=timeout_sec,
         verbose=verbose,
         phase="eval",
     )
+    return proc, _extract_inner_sec(proc.stdout, proc.stderr)
 
 
 def _run_docker_shell(
@@ -563,7 +761,7 @@ def _run_agent_in_docker(
     extra_env: dict[str, str] | None = None,
     verbose: bool = False,
     cmd_log_path: Path | None = None,
-) -> subprocess.CompletedProcess:
+) -> tuple[subprocess.CompletedProcess, float | None]:
     uid = os.getuid() if hasattr(os, "getuid") else 1000
     gid = os.getgid() if hasattr(os, "getgid") else 1000
 
@@ -677,7 +875,7 @@ def _run_agent_in_docker(
     inner_parts.append('test -f "$BENCH_SPEC_FILE"')
     for part in pre:
         inner_parts.append(str(part))
-    inner_parts.append(cmd)
+    inner_parts.append(_timed_bash_script(cmd))
     docker_cmd += [image, "bash", "-lc", " && ".join(inner_parts)]
 
     if cmd_log_path is not None:
@@ -687,12 +885,13 @@ def _run_agent_in_docker(
     _vprint(verbose, _cmd_str(docker_cmd))
     _vprint(verbose, f"[agent:{agent_name}] output:")
 
-    return _run_capture_stream(
+    proc = _run_capture_stream(
         docker_cmd,
         timeout_sec=timeout_sec,
         verbose=verbose,
         phase=f"agent:{agent_name}",
     )
+    return proc, _extract_inner_sec(proc.stdout, proc.stderr)
 
 
 def _run_agent_on_host(
@@ -706,7 +905,7 @@ def _run_agent_on_host(
     extra_env: dict[str, str] | None = None,
     verbose: bool = False,
     cmd_log_path: Path | None = None,
-) -> subprocess.CompletedProcess:
+) -> tuple[subprocess.CompletedProcess, float | None]:
     # Validate that declared executables exist on PATH.
     bins = agent_cfg.get("bins", [])
     if not isinstance(bins, list) or not bins:
@@ -767,7 +966,8 @@ def _run_agent_on_host(
     _vprint(verbose, _cmd_str(cmdline))
     _vprint(verbose, f"[agent:{agent_name}:host] output:")
 
-    return _run_capture_stream(
+    t0 = time.perf_counter()
+    proc = _run_capture_stream(
         cmdline,
         timeout_sec=timeout_sec,
         verbose=verbose,
@@ -775,6 +975,7 @@ def _run_agent_on_host(
         cwd=workdir,
         env=env,
     )
+    return proc, round(time.perf_counter() - t0, 6)
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -833,7 +1034,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
     )
 
     try:
-        proc = _run_docker_eval(
+        proc, eval_inner_sec = _run_docker_eval(
             image=args.image,
             workdir=workdir,
             eval_dir=task.eval_dir,
@@ -866,6 +1067,10 @@ def cmd_eval(args: argparse.Namespace) -> int:
         shutil.copy2(result_path, run_dir / "result.json")
         try:
             result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            _append_metric(result, "eval_inner_sec", eval_inner_sec)
+            (run_dir / "result.json").write_text(
+                json.dumps(result, indent=2) + "\n", encoding="utf-8"
+            )
             status = result.get("status", "unknown")
             _print_result_summary(f"{suite}/{task_id}", run_dir, result)
             if status != "passed":
@@ -890,11 +1095,6 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         agent_cfg = _load_agent_config(Path(str(args.agents)))
     except Exception as e:
         print(f"Failed to load agent config: {e}", file=sys.stderr)
-        return 2
-
-    enabled, reason = _is_agent_enabled(agent_cfg)
-    if not enabled:
-        print(f"Failed to load agent config: {reason}", file=sys.stderr)
         return 2
 
     run_id = args.run_id or _gen_run_id()
@@ -927,11 +1127,6 @@ def cmd_shell(args: argparse.Namespace) -> int:
         agent_cfg = _load_agent_config(Path(str(args.agents)))
     except Exception as e:
         print(f"Failed to load agent config: {e}", file=sys.stderr)
-        return 2
-
-    enabled, reason = _is_agent_enabled(agent_cfg)
-    if not enabled:
-        print(f"Failed to load agent config: {reason}", file=sys.stderr)
         return 2
 
     run_id = args.run_id or _gen_run_id()
@@ -997,11 +1192,6 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
     configured_name = str(agent_cfg.get("name", "")).strip()
     if not configured_name:
         print("agent config missing required 'name'", file=sys.stderr)
-        return 2
-
-    enabled, reason = _is_agent_enabled(agent_cfg)
-    if not enabled:
-        print(f"Failed to load agent config: {reason}", file=sys.stderr)
         return 2
 
     agent_name = configured_name
@@ -1095,7 +1285,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
 
     try:
         if mode == "docker":
-            op = _run_agent_in_docker(
+            op, agent_inner_sec = _run_agent_in_docker(
                 image=args.image,
                 workdir=workdir,
                 run_dir=run_dir,
@@ -1109,7 +1299,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
                 cmd_log_path=logs_dir / "agent.docker_cmd.txt",
             )
         elif mode == "host":
-            op = _run_agent_on_host(
+            op, agent_inner_sec = _run_agent_on_host(
                 workdir=workdir,
                 run_dir=run_dir,
                 agent_name=agent_name,
@@ -1155,7 +1345,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
 
     # Evaluate the same workdir using the hidden harness.
     try:
-        proc = _run_docker_eval(
+        proc, eval_inner_sec = _run_docker_eval(
             image=args.image,
             workdir=workdir,
             eval_dir=task.eval_dir,
@@ -1186,6 +1376,11 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         shutil.copy2(result_path, run_dir / "result.json")
         try:
             result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            _append_metric(result, "agent_inner_sec", agent_inner_sec)
+            _append_metric(result, "eval_inner_sec", eval_inner_sec)
+            (run_dir / "result.json").write_text(
+                json.dumps(result, indent=2) + "\n", encoding="utf-8"
+            )
             status = result.get("status", "unknown")
             _print_result_summary(f"{suite}/{task_id}", run_dir, result)
             if status != "passed":
@@ -1219,6 +1414,15 @@ def main(argv: list[str]) -> int:
 
     p_list = sub.add_parser("list", help="List available tasks")
     p_list.set_defaults(fn=cmd_list)
+
+    p_check = sub.add_parser("check", help="Validate task spec/layout")
+    p_check.add_argument(
+        "task",
+        nargs="?",
+        default="",
+        help="Optional task in the form <suite>/<task_id> (defaults to all tasks)",
+    )
+    p_check.set_defaults(fn=cmd_check)
 
     p_run = sub.add_parser("run", help="Run agent solve + eval")
     p_run.add_argument("agents", help="Path to single-agent TOML config")

@@ -13,7 +13,7 @@ Design goals:
 - `benchmarks/<suite>/<task_id>/task.toml`: minimal task metadata for the runner
 - `benchmarks/<suite>/<task_id>/workspace/`: template workspace copied per run (model edits here)
 - `benchmarks/<suite>/<task_id>/eval/`: evaluation harness (not mounted into the agent container)
-- `runner/bench.py`: CLI (list/prepare/shell/run/eval)
+- `runner/bench.py`: CLI (list/check/prepare/shell/run/eval)
 - `agents_default.toml`: default multi-agent settings (opencode/codex/claude/copilot)
 - `sample/opencode.toml`: sample single-agent configuration file
 - `docker/Dockerfile`: unified image for Python/C++/Fortran tasks
@@ -33,6 +33,13 @@ List tasks:
 
 ```bash
 python3 runner/bench.py list
+```
+
+Validate task layout/metadata:
+
+```bash
+python3 runner/bench.py check
+python3 runner/bench.py check demo/py-add-001
 ```
 
 Run full benchmark (agent solve + hidden eval):
@@ -90,12 +97,12 @@ These are exposed to agent commands as:
 - `$BENCH_MODEL_OPTIONS_ARGS` placeholder in `cmd` is replaced by the runner with
   shell-escaped CLI flags (e.g. `--reasoning-effort high`)
 
-Enable non-default agents via env vars:
+Run different agents by selecting their TOML config:
 
 ```bash
-SCIBENCH_ENABLE_CLAUDE=1 python3 runner/bench.py run sample/claude.toml demo/py-add-001 --image scibench:0.1
-SCIBENCH_ENABLE_CODEX=1 python3 runner/bench.py run sample/codex.toml demo/py-add-001 --image scibench:0.1
-SCIBENCH_ENABLE_COPILOT=1 python3 runner/bench.py run sample/copilot.toml demo/py-add-001 --image scibench:0.1
+python3 runner/bench.py run sample/claude.toml demo/py-add-001 --image scibench:0.1
+python3 runner/bench.py run sample/codex.toml demo/py-add-001 --image scibench:0.1
+python3 runner/bench.py run sample/copilot.toml demo/py-add-001 --image scibench:0.1
 ```
 
 You usually do not need `--prompt`; the runner uses a default message. You can also
@@ -119,4 +126,6 @@ This runs agent sessions in Docker by mounting:
 
 ## Docs
 
-- `docs/run-flow.md`: what happens during a benchmark run
+- `docs/task-development.md`: quickstart for creating new tasks
+- `docs/task-reference.md`: task format and evaluation contract details
+- `docs/run-flow.md`: runtime flow (prepare/run/eval internals)

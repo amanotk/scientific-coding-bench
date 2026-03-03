@@ -40,10 +40,7 @@ python3 runner/bench.py eval demo/py-add-001 --workdir /path/to/workdir --image 
 
 Agent defaults:
 - Model defaults come from merged config (`agents_default.toml` + override TOML).
-- Agent enable uses per-agent env vars (opencode enabled by default), e.g.
-  - `SCIBENCH_ENABLE_CLAUDE=1`
-  - `SCIBENCH_ENABLE_CODEX=1`
-  - `SCIBENCH_ENABLE_COPILOT=1`
+- Select which agent runs by passing the corresponding override TOML.
 
 Verbose runner output:
 
@@ -127,6 +124,13 @@ Author a new task (manual, v0):
 
 Debug a task locally: use `bench.py shell` to iterate, then `bench.py run` to score.
 
+Validate task scaffolding and metadata:
+
+```bash
+python3 runner/bench.py check
+python3 runner/bench.py check <suite>/<task_id>
+```
+
 
 ## Docker / Sandbox Notes
 
@@ -145,6 +149,10 @@ Runner logs:
 
 The eval harness writes `/work/result.json`, e.g. `{ "status": "passed", "score": 1.0 }`.
 Add optional `metrics` fields as needed (keep it machine-readable and stable).
+
+The runner may append timing metrics to copied results:
+- `agent_inner_sec`: agent command runtime inside the container
+- `eval_inner_sec`: eval command runtime inside the container
 
 
 ## Code Style Guidelines
