@@ -99,6 +99,19 @@ Lint (not enforced yet):
 python3 -m py_compile runner/bench.py
 ```
 
+Formatting (run before commit):
+
+```bash
+uvx ruff format runner tests
+uvx ruff check --fix runner tests
+clang-format -i $(git ls-files "*.cpp" "*.hpp")
+uvx fprettify -r benchmarks/demo/f90-rk2-001/workspace/src/*.f90
+```
+
+Notes:
+- Use repo `.clang-format` for C++ formatting.
+- Use `fprettify` for free-form Fortran (`.f90`) sources.
+
 Runner tests:
 
 ```bash
@@ -162,6 +175,8 @@ General:
 - Prefer deterministic behavior (fixed seeds, tolerance-based numeric asserts).
 - Keep the runner lightweight (stdlib-first).
 - Text files: trailing newline.
+- Always apply formatters for changed source files: `ruff` (Python),
+  `clang-format` (C/C++), `fprettify` (Fortran).
 
 Python (runner, `runner/`):
 - Target Python 3.10+.

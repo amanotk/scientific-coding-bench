@@ -13,11 +13,14 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     bash ca-certificates coreutils curl git jq time \
     make cmake ninja-build pkg-config \
-    g++ gfortran \
+    g++ gfortran clang-format \
     nodejs npm \
     python3 python3-pip python3-venv \
     python3-numpy python3-scipy python3-pytest \
+  && rm -rf /var/lib/apt/lists/* \
+  && curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL=/usr/local/bin sh \
+  && uv pip install --system --no-cache ruff fprettify \
   && npm install -g opencode-ai @anthropic-ai/claude-code @openai/codex @github/copilot \
-  && rm -rf /var/lib/apt/lists/*
+  && uv --version
 
 WORKDIR /work

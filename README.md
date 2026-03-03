@@ -23,6 +23,16 @@ Design goals:
 
 Prereqs: Docker installed and `docker` available on PATH.
 
+For host-side tooling, we recommend `uv` with Python 3.10+:
+
+```bash
+uv sync --extra dev
+```
+
+Notes:
+- Runner source supports Python 3.10+.
+- For Python <3.11, `tomli` is installed from dev extras and used as TOML parser fallback.
+
 Build the unified image:
 
 ```bash
