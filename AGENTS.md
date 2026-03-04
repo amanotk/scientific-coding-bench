@@ -145,6 +145,7 @@ Author a new task (manual, v0):
 - Create `benchmarks/<suite>/<task_id>/` with `spec.md`, `task.toml`, `workspace/`, `eval/`.
 - Ensure `eval/run.sh` is executable.
 - Ensure `eval/run.sh` writes `/work/result.json`.
+- CLI parsers are preinstalled: use `cxxopts` for C++, and `FLAP` (with FACE/PENF) for Fortran. See `docs/toolchain.md` for include/link details.
 
 Debug a task locally: use `bench.py shell` to iterate, then `bench.py run` to score.
 
