@@ -1,5 +1,5 @@
 CXX ?= g++
-CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -pedantic
+CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -pedantic -I../../../common/include
 
 BIN_DIR := bin
 SRC_DIR := src

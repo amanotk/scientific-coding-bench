@@ -9,13 +9,15 @@ suite.
 
 ## Task
 
-Edit `src/wave3d.py` so that `simulate_wave_3d(dt, dx, nx, ny, nz, n_steps)`:
+Edit `src/wave3d.py` so that `push_wave_3d(u, v, dt, dx, nx, ny, nz)`:
 
-- Returns a `numpy.ndarray` representing `u(iz, iy, ix)` with shape `(nz, ny, nx)`
-- Uses `c = 1.0`
+- Accepts state arrays as first arguments and updates them in place
+- Uses arrays representing `u(iz, iy, ix)` and `v(iz, iy, ix)`
+- Uses a one-cell ghost layer in each direction; if `nx` is given, x-size is `nx + 2`
 - Uses periodic boundaries in all three dimensions
-- Uses the initial condition defined in `description.md`
-- Advances the field for `n_steps` using the scheme in `description.md`
+- Performs exactly one finite-difference push step with `c = 1.0`
+
+Tests set initial condition and perform the time loop outside this function.
 
 Shared reference data is in `data/fd3d_cases.json`.
 

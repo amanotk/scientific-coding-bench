@@ -202,16 +202,10 @@ The runner prints a compact terminal summary after evaluation:
 - `run_dir`
 
 
-## Verbose Mode
+## Logging Mode
 
-Pass `--verbose` to print internal runner actions (run paths, resolved commands)
-to stderr:
-
-```bash
-python3 runner/bench.py --verbose run sample/opencode.toml <suite>/<task_id>
-```
-
-Verbose mode also streams full process output in real time for both phases,
+The runner prints internal actions (run paths, resolved commands) and streams
+process output in real time by default for both phases,
 with phase+stream prefixes:
 
 - `[agent:<name>] stdout: ...` and `[agent:<name>] stderr: ...`
@@ -222,3 +216,9 @@ Verbose logs are grouped into sections to improve readability:
 - `RUN SETUP`
 - `AGENT PHASE`
 - `EVAL PHASE`
+
+Pass `-q` or `--quiet` to suppress these internal logs.
+
+```bash
+python3 runner/bench.py -q run sample/opencode.toml <suite>/<task_id>
+```

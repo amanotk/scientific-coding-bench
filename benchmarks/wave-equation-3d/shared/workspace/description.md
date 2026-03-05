@@ -1,4 +1,4 @@
-# 3D Wave Equation Description
+# 3D Wave Equation Solver Description
 
 ## Governing Equation
 
@@ -45,13 +45,6 @@ u_{i,j,k}^{n+1} &= u_{i,j,k}^{n} + \Delta t\,v_{i,j,k}^{n+1/2}.
 \end{aligned}
 ```
 
-## Boundary Conditions
-
-Use periodic boundary conditions in all three spatial dimensions.
-
-For implementation, use a one-cell ghost layer around the interior domain and
-copy periodic faces into ghost cells each step.
-
 ## Initial Condition
 
 Use centered Gaussian initial displacement with zero initial velocity:
@@ -68,34 +61,36 @@ Use cell-centered grid coordinates:
 x_i = \frac{i + 0.5}{n_x},\; y_j = \frac{j + 0.5}{n_y},\; z_k = \frac{k + 0.5}{n_z}
 ```
 
+## Boundary Conditions
+
+Use periodic boundary conditions in all three spatial dimensions.
+
 ## Implementation Notes
 
-- A standard finite-difference implementation with explicit neighbor indexing
-  (or equivalent slice indexing) is preferred.
-- Avoid `np.roll`-specific formulations so the same scheme maps directly to
-  C++/Fortran implementations.
+- A one-cell ghost layer on both sides of each dimension must be used.
+- Given interior sizes `(nx, ny, nz)`, allocate arrays with ghost cells as
+`(nx + 2, ny + 2, nz + 2)`.
+- The boundary condition implementation should update ghost cells.
+- Indexing for arrays starts from 0 in C++ and Python, and from 1 in Fortran.
+- For loop indices, use `int` in C++, and `integer` in Fortran, unless specified otherwise.
+- The physical field is always `u(x, y, z)` with physical indices `(ix, iy, iz)`. Assume always `x` direction is contiguous in memory, then `y`, then `z`. In other words, we have the following mapping between physical indices and array indices:
+  - Fortran representation: `u(ix, iy, iz)`
+  - C++/Python representation: `u(iz, iy, ix)`
+- For C++ implementations, use `mdspan` with default C-style layout (`layout_right`) for multidimensional views.
+  - Include `experimental/mdspan` and declare `namespace stdex = std::experimental`, then `stdex::mdspan` is a backport of the C++23 `std::mdspan`.
+  - Accessing each element of the mdspan should be done with `operator()`, e.g. `u(iz, iy, ix)`.
 
-## Language-specific Array Mapping
+## Push API Contract
 
-The physical field is always `u(x, y, z)` with physical indices `(ix, iy, iz)`.
-
-- Fortran representation: `u(ix, iy, iz)`
-- C++/Python representation: `u(iz, iy, ix)`
-
-For C++, use `std::mdspan` with default C-style layout (`layout_right`) for
-multidimensional views.
+Tasks expose a one-step kernel named `push_wave_3d` that updates `u` and `v`
+in place. Initial condition setup and the loop over `n_steps` are done by the
+caller (tests or CLI main program).
 
 ## CLI Output Contract (Compiled Tasks)
 
-When a task uses a CLI executable, print the interior field in **physical
-index order**:
+- When a task uses a CLI executable, print the interior field in the memory layout order (fastest to slowest) after the final time step, with one value per line.
 
-1. `ix` outer loop
-2. `iy` middle loop
-3. `iz` inner loop
+- Output one float per line with enough precision for `1e-12` checks
+- Default CLI arguments for this suite are:
 
-Output one float per line with enough precision for `1e-12` checks.
-
-Default CLI arguments for this suite are:
-
-`<dt> <dx> <nx> <ny> <nz> <n_steps>`
+  `<dt> <dx> <nx> <ny> <nz> <n_steps>`

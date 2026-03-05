@@ -535,9 +535,6 @@ def _check_task(task: Task) -> tuple[list[str], list[str]]:
         if not p.exists() or not p.is_file():
             errors.append(f"prompt_file not found: {p}")
 
-    if "review_prompt" in meta and not isinstance(meta.get("review_prompt"), str):
-        errors.append("task.toml review_prompt must be a string")
-
     use_shared_workspace = meta.get("use_shared_workspace", False)
     if not isinstance(use_shared_workspace, bool):
         errors.append("task.toml use_shared_workspace must be a boolean")
@@ -1062,6 +1059,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
+    verbose = not bool(args.quiet)
+
     if "/" not in args.task:
         print("Task must be in the form <suite>/<task_id>", file=sys.stderr)
         return 2
@@ -1106,13 +1105,13 @@ def cmd_eval(args: argparse.Namespace) -> int:
         task.task_toml_path.read_text(encoding="utf-8"), encoding="utf-8"
     )
 
-    _vsection(args.verbose, "RUN SETUP")
-    _vprint(args.verbose, f"run_id={run_id}")
-    _vprint(args.verbose, f"run_dir={run_dir}")
-    _vprint(args.verbose, f"workdir={workdir}")
-    _vprint(args.verbose, f"task={suite}/{task_id}")
+    _vsection(verbose, "RUN SETUP")
+    _vprint(verbose, f"run_id={run_id}")
+    _vprint(verbose, f"run_dir={run_dir}")
+    _vprint(verbose, f"workdir={workdir}")
+    _vprint(verbose, f"task={suite}/{task_id}")
     _vprint(
-        args.verbose,
+        verbose,
         f"image={args.image} network={args.network} timeout_sec={timeout_sec}",
     )
 
@@ -1125,7 +1124,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
             shared_eval_dir=shared_eval_dir,
             network=args.network,
             timeout_sec=timeout_sec,
-            verbose=args.verbose,
+            verbose=verbose,
             cmd_log_path=logs_dir / "eval.docker_cmd.txt",
         )
     except FileNotFoundError as e:
@@ -1242,6 +1241,8 @@ def cmd_shell(args: argparse.Namespace) -> int:
 
 
 def _cmd_agent_common(*, args: argparse.Namespace) -> int:
+    verbose = not bool(args.quiet)
+
     if "/" not in args.task:
         print("Task must be in the form <suite>/<task_id>", file=sys.stderr)
         return 2
@@ -1301,7 +1302,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         model = str(agent_cfg.get("default_model", "")).strip()
         model_source = "default_model"
     if model:
-        _vprint(args.verbose, f"using {model_source} from agents config: {model}")
+        _vprint(verbose, f"using {model_source} from agents config: {model}")
     if not model:
         print(
             f"No model configured. Set model for agent {agent_name!r} in agents config",
@@ -1311,14 +1312,14 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
     if agent_name == "opencode" and "/" not in model:
         before = model
         model = f"openai/{model}"
-        _vprint(args.verbose, f"normalized model for opencode: {before} -> {model}")
+        _vprint(verbose, f"normalized model for opencode: {before} -> {model}")
 
-    _vsection(args.verbose, "RUN SETUP")
-    _vprint(args.verbose, f"run_id={run_id}")
-    _vprint(args.verbose, f"run_dir={run_dir}")
-    _vprint(args.verbose, f"workdir={workdir}")
-    _vprint(args.verbose, f"agent={agent_name} mode={mode}")
-    _vprint(args.verbose, f"agents_config={agents_config_path}")
+    _vsection(verbose, "RUN SETUP")
+    _vprint(verbose, f"run_id={run_id}")
+    _vprint(verbose, f"run_dir={run_dir}")
+    _vprint(verbose, f"workdir={workdir}")
+    _vprint(verbose, f"agent={agent_name} mode={mode}")
+    _vprint(verbose, f"agents_config={agents_config_path}")
 
     default_prompt = (
         "Solve the attached spec. Edit files in the working directory. "
@@ -1343,10 +1344,6 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
 
     if not prompt:
         prompt = default_prompt
-
-    review_prompt = str(task.meta.get("review_prompt", "")).strip()
-    if review_prompt:
-        prompt = prompt.rstrip() + "\n\n" + review_prompt
 
     # Always include pointers so different agent CLIs can locate inputs.
     spec_ptr = "/run/spec.md" if mode == "docker" else str(run_dir / "spec.md")
@@ -1385,7 +1382,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
                 network=args.network,
                 timeout_sec=timeout_sec,
                 extra_env=extra_env,
-                verbose=args.verbose,
+                verbose=verbose,
                 cmd_log_path=logs_dir / "agent.docker_cmd.txt",
             )
         elif mode == "host":
@@ -1397,7 +1394,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
                 model=model,
                 timeout_sec=timeout_sec,
                 extra_env=extra_env,
-                verbose=args.verbose,
+                verbose=verbose,
                 cmd_log_path=logs_dir / "agent.host_cmd.txt",
             )
         else:
@@ -1443,7 +1440,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             shared_eval_dir=shared_eval_dir,
             network=args.network,
             timeout_sec=timeout_sec,
-            verbose=args.verbose,
+            verbose=verbose,
             cmd_log_path=logs_dir / "eval.docker_cmd.txt",
         )
     except FileNotFoundError as e:
@@ -1489,9 +1486,10 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="bench")
     p.add_argument(
-        "--verbose",
+        "-q",
+        "--quiet",
         action="store_true",
-        help="Print internal runner actions to stderr",
+        help="Suppress internal runner action logs",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 

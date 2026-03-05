@@ -27,14 +27,14 @@ def _build_exe() -> Path:
     return exe
 
 
-def _parse_flat_physical(lines: list[str], nx: int, ny: int, nz: int) -> np.ndarray:
+def _parse_flat_memory_order(lines: list[str], nx: int, ny: int, nz: int) -> np.ndarray:
     vals = [float(line.strip()) for line in lines if line.strip()]
     assert len(vals) == nx * ny * nz
     out = np.empty((nx, ny, nz), dtype=np.float64)
     p = 0
-    for ix in range(nx):
+    for iz in range(nz):
         for iy in range(ny):
-            for iz in range(nz):
+            for ix in range(nx):
                 out[ix, iy, iz] = vals[p]
                 p += 1
     return out
@@ -57,7 +57,7 @@ def _run_case(exe: Path, case: dict) -> np.ndarray:
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
-    return _parse_flat_physical(
+    return _parse_flat_memory_order(
         proc.stdout.splitlines(), case["nx"], case["ny"], case["nz"]
     )
 

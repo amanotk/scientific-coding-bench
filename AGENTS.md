@@ -53,10 +53,10 @@ Agent defaults:
 - Model defaults come from merged config (`agents_default.toml` + override TOML).
 - Select which agent runs by passing the corresponding override TOML.
 
-Verbose runner output:
+Quiet runner output (default is verbose):
 
 ```bash
-python3 runner/bench.py --verbose run sample/opencode.toml demo/py-rk2-001 --image scibench:0.1
+python3 runner/bench.py -q run sample/opencode.toml demo/py-rk2-001 --image scibench:0.1
 ```
 
 Network tracks:

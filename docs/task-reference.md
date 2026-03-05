@@ -37,7 +37,6 @@ Optional keys:
 
 - `prompt` (string): one-shot prompt for the solver
 - `prompt_file` (string): path relative to task root
-- `review_prompt` (string): optional self-review instruction appended after the base prompt
 - `use_shared_workspace` (boolean): if true, copy `benchmarks/<suite>/shared/workspace/` into run workdir before overlaying task `workspace/`
 - `use_shared_eval` (boolean): if true, mount `benchmarks/<suite>/shared/eval/` at `/eval_shared` during eval
 
@@ -50,7 +49,6 @@ language = "python"
 time_limit_sec = 120
 eval_cmd = "/eval/run.sh"
 prompt = "Read /run/spec.md and solve the task in /work."
-review_prompt = "Before finishing, self-review your changes, identify concrete risks or test gaps, and fix any issues you find before submitting your final answer."
 use_shared_workspace = false
 use_shared_eval = false
 ```

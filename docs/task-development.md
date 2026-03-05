@@ -54,7 +54,6 @@ language = "python"
 time_limit_sec = 120
 eval_cmd = "/eval/run.sh"
 prompt = "Read /run/spec.md and solve the task in /work."
-review_prompt = "Before finishing, self-review your changes, identify concrete risks or test gaps, and fix any issues you find before submitting your final answer."
 use_shared_workspace = false
 use_shared_eval = false
 ```

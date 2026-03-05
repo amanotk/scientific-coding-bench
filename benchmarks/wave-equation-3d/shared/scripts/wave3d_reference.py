@@ -88,7 +88,37 @@ def push_numpy_slice(
     set_boundary_condition_numpy(u, lbx, ubx, lby, uby, lbz, ubz)
 
 
-def simulate_wave_3d(
+def push_wave_3d(
+    u: np.ndarray,
+    v: np.ndarray,
+    dt: float,
+    dx: float,
+    nx: int,
+    ny: int,
+    nz: int,
+    c: float = 1.0,
+) -> None:
+    if min(nx, ny, nz) <= 0:
+        raise ValueError("grid sizes must be positive")
+    if dx <= 0.0 or dt < 0.0:
+        raise ValueError("dx must be positive and dt must be non-negative")
+    if u.shape != (nx + 2, ny + 2, nz + 2):
+        raise ValueError("u must have shape (nx+2, ny+2, nz+2)")
+    if v.shape != (nx + 2, ny + 2, nz + 2):
+        raise ValueError("v must have shape (nx+2, ny+2, nz+2)")
+
+    nb = 1
+    lbx = nb
+    ubx = nx + nb - 1
+    lby = nb
+    uby = ny + nb - 1
+    lbz = nb
+    ubz = nz + nb - 1
+
+    push_numpy_slice(u, v, lbx, ubx, lby, uby, lbz, ubz, dt, dx, dx, dx, c)
+
+
+def run_simulation(
     dt: float,
     dx: float,
     nx: int,
@@ -100,27 +130,13 @@ def simulate_wave_3d(
 ) -> np.ndarray:
     if n_steps < 0:
         raise ValueError("n_steps must be non-negative")
-    if min(nx, ny, nz) <= 0:
-        raise ValueError("grid sizes must be positive")
-    if dx <= 0.0 or dt < 0.0:
-        raise ValueError("dx must be positive and dt must be non-negative")
 
-    nb = 1
-    lbx = nb
-    ubx = nx + nb - 1
-    lby = nb
-    uby = ny + nb - 1
-    lbz = nb
-    ubz = nz + nb - 1
-
-    u = np.zeros((nx + 2 * nb, ny + 2 * nb, nz + 2 * nb), dtype=np.float64)
+    u = np.zeros((nx + 2, ny + 2, nz + 2), dtype=np.float64)
     v = np.zeros_like(u)
-    set_initial_condition(u, v, lbx, ubx, lby, uby, lbz, ubz, sigma=sigma)
-
+    set_initial_condition(u, v, 1, nx, 1, ny, 1, nz, sigma=sigma)
     for _ in range(n_steps):
-        push_numpy_slice(u, v, lbx, ubx, lby, uby, lbz, ubz, dt, dx, dx, dx, c)
-
-    return u[lbx : ubx + 1, lby : uby + 1, lbz : ubz + 1].copy()
+        push_wave_3d(u, v, dt, dx, nx, ny, nz, c=c)
+    return u[1 : nx + 1, 1 : ny + 1, 1 : nz + 1].copy()
 
 
 def main() -> int:
@@ -135,7 +151,7 @@ def main() -> int:
     parser.add_argument("--n-steps", type=int, default=3, help="Number of time steps")
     args = parser.parse_args()
 
-    u = simulate_wave_3d(args.dt, args.dx, args.nx, args.ny, args.nz, args.n_steps)
+    u = run_simulation(args.dt, args.dx, args.nx, args.ny, args.nz, args.n_steps)
     print(f"shape={u.shape}")
     print(f"mean={float(np.mean(u)):.16e}")
     print(f"l2={float(np.sqrt(np.mean(u * u))):.16e}")

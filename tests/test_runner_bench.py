@@ -461,7 +461,7 @@ cmd = "true"
             self.assertTrue((run_dir / "prompt.txt").exists())
             self.assertTrue((run_dir / "logs" / "agent.forwarded_env.txt").exists())
 
-    def test_verbose_prints_result_summary(self):
+    def test_default_logging_prints_result_summary(self):
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
             bench_root = td_path / "benchmarks"
@@ -558,7 +558,6 @@ name = "opencode"
                 with redirect_stdout(out), redirect_stderr(err):
                     rc = bench.main(
                         [
-                            "--verbose",
                             "run",
                             str(agents_toml),
                             "s/t",

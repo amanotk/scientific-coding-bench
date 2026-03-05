@@ -8,16 +8,18 @@ order.
 
 ## Task
 
-Edit `src/wave3d_solver.f90` so that `simulate_wave_3d(dt, dx, nx, ny, nz, n_steps, u_out)`:
+Edit `src/wave3d_solver.f90` so that
+`push_wave_3d(u, v, dt, dx, nx, ny, nz)` performs one in-place update step:
 
-- Writes `u_out(ix, iy, iz)` in Fortran representation
-- Uses `c = 1.0`
+- `u` and `v` are first arguments with `intent(inout)`
+- Arrays use Fortran representation with ghost cells: `u(ix, iy, iz)` and `v(ix, iy, iz)`
+- If `nx` is given, x-extent is `nx + 2` (same for `ny`, `nz`)
 - Uses periodic boundaries in all three dimensions
-- Uses the initial condition defined in `description.md`
-- Advances for `n_steps` using the scheme in `description.md`
+- Uses `c = 1.0`
 
 Do not change the CLI argument interface in `src/main.f90`.
-The executable must print the interior field in physical order (`ix`, `iy`, `iz`),
+`main.f90` is responsible for setting initial conditions and calling push for each step.
+The executable must print the interior field in memory-layout order (`ix`, `iy`, `iz`),
 one value per line.
 
 Shared reference data is in `data/fd3d_cases.json`.

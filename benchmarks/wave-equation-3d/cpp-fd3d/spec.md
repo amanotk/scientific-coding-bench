@@ -8,16 +8,18 @@ order.
 
 ## Task
 
-Edit `src/wave3d.cpp` so that `simulate_wave_3d(dt, dx, nx, ny, nz, n_steps)`:
+Edit `src/wave3d.cpp` so that
+`push_wave_3d(u, v, dt, dx, nx, ny, nz)` performs one in-place update step:
 
-- Returns storage representing `u(iz, iy, ix)`
-- Uses `c = 1.0`
+- `u` and `v` are the first arguments and are updated in place
+- Storage represents `u(iz, iy, ix)` / `v(iz, iy, ix)` with ghost cells
+- If `nx` is given, the x-extent of each array is `nx + 2` (same rule for `ny`, `nz`)
 - Uses periodic boundaries in all three dimensions
-- Uses the initial condition defined in `description.md`
-- Advances for `n_steps` using the scheme in `description.md`
+- Uses `c = 1.0`
 
 Do not change the CLI argument interface in `src/main.cpp`.
-The executable must print the interior field in physical order (`ix`, `iy`, `iz`),
+`main.cpp` is responsible for setting initial conditions and calling push for each step.
+The executable must print the interior field in memory-layout order (`iz`, `iy`, `ix`),
 one value per line.
 
 Shared reference data is in `data/fd3d_cases.json`.
