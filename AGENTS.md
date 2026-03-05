@@ -53,10 +53,10 @@ Agent defaults:
 - Model defaults come from merged config (`agents_default.toml` + override TOML).
 - Select which agent runs by passing the corresponding override TOML.
 
-Verbose runner output:
+Quiet runner output (default is verbose):
 
 ```bash
-python3 runner/bench.py --verbose run sample/opencode.toml demo/py-rk2-001 --image scibench:0.1
+python3 runner/bench.py -q run sample/opencode.toml demo/py-rk2-001 --image scibench:0.1
 ```
 
 Network tracks:
@@ -115,7 +115,7 @@ Formatting (run before commit):
 ```bash
 uvx ruff format runner tests
 uvx ruff check --fix runner tests
-clang-format -i $(git ls-files "*.cpp" "*.hpp")
+clang-format -i $(git ls-files "*.cpp" "*.hpp" ':!:benchmarks/common/include/**')
 uvx fprettify -r benchmarks/demo/f90-rk2-001/workspace/src/*.f90
 ```
 
