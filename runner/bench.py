@@ -1481,6 +1481,8 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         return 1
 
     # Evaluate the same workdir using the hidden harness.
+    # Keep eval harness output hidden in default run UX to avoid exposing
+    # hidden test details via streamed stdout/stderr.
     try:
         proc, eval_inner_sec = _run_docker_eval(
             image=args.image,
@@ -1490,7 +1492,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             shared_eval_dir=shared_eval_dir,
             network=args.network,
             timeout_sec=timeout_sec,
-            verbose=verbose,
+            verbose=False,
             cmd_log_path=logs_dir / "eval.docker_cmd.txt",
         )
     except FileNotFoundError as e:

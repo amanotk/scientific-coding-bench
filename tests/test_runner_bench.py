@@ -666,6 +666,8 @@ name = "opencode"
                 )
 
             def fake_eval(*, workdir: Path, **_kwargs):
+                seen_eval_verbose = _kwargs.get("verbose")
+                self.assertFalse(seen_eval_verbose)
                 (workdir / "result.json").write_text(
                     json.dumps(
                         {
