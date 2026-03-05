@@ -39,13 +39,13 @@ program fd3d_cli
 
    sigma = 0.1d0
    do iz = 2, nz + 1
-      z = (real(iz - 2, kind=8) + 0.5d0) / real(nz, kind=8)
+      z = (real(iz - 2, kind=8) + 0.5d0)/real(nz, kind=8)
       do iy = 2, ny + 1
-         y = (real(iy - 2, kind=8) + 0.5d0) / real(ny, kind=8)
+         y = (real(iy - 2, kind=8) + 0.5d0)/real(ny, kind=8)
          do ix = 2, nx + 1
-            x = (real(ix - 2, kind=8) + 0.5d0) / real(nx, kind=8)
-            r2 = (x - 0.5d0) ** 2 + (y - 0.5d0) ** 2 + (z - 0.5d0) ** 2
-            u(ix, iy, iz) = exp(-r2 / (2.0d0 * sigma * sigma))
+            x = (real(ix - 2, kind=8) + 0.5d0)/real(nx, kind=8)
+            r2 = (x - 0.5d0)**2 + (y - 0.5d0)**2 + (z - 0.5d0)**2
+            u(ix, iy, iz) = exp(-r2/(2.0d0*sigma*sigma))
          end do
       end do
    end do
