@@ -1,4 +1,4 @@
-# py-fd3d
+# py
 
 Implement a NumPy finite-difference solver for the 3D wave equation with
 periodic boundary conditions.

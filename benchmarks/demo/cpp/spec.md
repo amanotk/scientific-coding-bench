@@ -1,4 +1,4 @@
-# cpp-rk2-001
+# cpp
 
 Implement a simple second-order Runge-Kutta (midpoint) ODE solver in C++.
 

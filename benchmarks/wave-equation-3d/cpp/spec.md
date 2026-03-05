@@ -1,4 +1,4 @@
-# cpp-fd3d
+# cpp
 
 Implement a C++ finite-difference solver for the 3D wave equation.
 

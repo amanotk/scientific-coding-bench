@@ -43,7 +43,7 @@ Optional keys:
 Example:
 
 ```toml
-id = "py-rk2-001"
+id = "py"
 suite = "demo"
 language = "python"
 time_limit_sec = 120

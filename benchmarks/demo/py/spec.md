@@ -1,4 +1,4 @@
-# py-rk2-001
+# py
 
 Implement a simple second-order Runge-Kutta (midpoint) ODE solver in Python.
 

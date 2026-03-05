@@ -1,6 +1,6 @@
-id = "f90-rk2-001"
+id = "py"
 suite = "demo"
-language = "fortran"
+language = "python"
 time_limit_sec = 180
 eval_cmd = "/eval/run.sh"
 prompt = "Read /run/spec.md and solve the task in /work."

@@ -1,4 +1,4 @@
-# f90-rk2-001
+# f90
 
 Implement a simple second-order Runge-Kutta (midpoint) ODE solver in Fortran.
 

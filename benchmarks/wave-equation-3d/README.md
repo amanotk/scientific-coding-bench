@@ -4,9 +4,9 @@ This suite contains benchmark tasks for 3D wave-equation solvers.
 
 ## Directory layout
 
-- `py-fd3d/`: Python task (`spec.md`, `task.toml`, `workspace/`, `eval/`).
-- `cpp-fd3d/`: C++ task (`spec.md`, `task.toml`, `workspace/`, `eval/`).
-- `f90-fd3d/`: Fortran task (`spec.md`, `task.toml`, `workspace/`, `eval/`).
+- `py/`: Python task (`spec.md`, `task.toml`, `workspace/`, `eval/`).
+- `cpp/`: C++ task (`spec.md`, `task.toml`, `workspace/`, `eval/`).
+- `f90/`: Fortran task (`spec.md`, `task.toml`, `workspace/`, `eval/`).
 - `shared/workspace/description.md`: shared implementation description for agents.
 - `shared/workspace/data/fd3d_cases.json`: shared reference fixture data.
 - `shared/eval/wave3d_shared.py`: shared hidden-eval helpers.

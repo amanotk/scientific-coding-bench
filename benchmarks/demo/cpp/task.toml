@@ -1,6 +1,6 @@
-id = "py-rk2-001"
+id = "cpp"
 suite = "demo"
-language = "python"
+language = "cpp"
 time_limit_sec = 180
 eval_cmd = "/eval/run.sh"
 prompt = "Read /run/spec.md and solve the task in /work."

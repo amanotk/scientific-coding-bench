@@ -1,6 +1,6 @@
-id = "cpp-rk2-001"
+id = "f90"
 suite = "demo"
-language = "cpp"
+language = "fortran"
 time_limit_sec = 180
 eval_cmd = "/eval/run.sh"
 prompt = "Read /run/spec.md and solve the task in /work."

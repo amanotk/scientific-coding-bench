@@ -1,5 +1,5 @@
 [project]
-name = "py-fd3d"
+name = "demo-py"
 version = "0.0.0"
 requires-python = ">=3.10"
 

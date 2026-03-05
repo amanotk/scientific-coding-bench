@@ -1,4 +1,4 @@
-id = "py-fd3d"
+id = "py"
 suite = "wave-equation-3d"
 language = "python"
 time_limit_sec = 300

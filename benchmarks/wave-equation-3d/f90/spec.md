@@ -1,4 +1,4 @@
-# f90-fd3d
+# f90
 
 Implement a Fortran finite-difference solver for the 3D wave equation.
 

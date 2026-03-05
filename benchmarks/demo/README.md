@@ -1,24 +1,25 @@
-# demo suite
+# Demo Benchmarks
 
-This suite contains compact reference tasks used to validate runner behavior
-and baseline agent workflows.
+This suite contains benchmark tasks for demonstration purposes. Each task implements a simple RK2 midpoint method in a different language (Python, C++, Fortran).
 
 ## Directory layout
 
-- `py-rk2-001/`: Python RK2 midpoint task.
-- `cpp-rk2-001/`: C++ RK2 midpoint task.
-- `f90-rk2-001/`: Fortran RK2 midpoint task.
+- `py/`: Python RK2 midpoint task.
+- `cpp/`: C++ RK2 midpoint task.
+- `f90/`: Fortran RK2 midpoint task.
 - `shared/workspace/data/rk2_cases.json`: shared RK2 reference trajectories.
 - `shared/eval/rk2_shared.py`: shared hidden-eval helpers.
 
-## Shared assets behavior
+## Shared assets
 
-Tasks can opt in with:
+Tasks can opt in to shared assets with:
 
 ```toml
 use_shared_workspace = true
 use_shared_eval = true
 ```
+
+in their `task.toml`.
 
 With these enabled:
 

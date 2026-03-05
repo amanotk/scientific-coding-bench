@@ -1,6 +1,6 @@
-id = "cpp-fd3d"
+id = "f90"
 suite = "wave-equation-3d"
-language = "cpp"
+language = "fortran"
 time_limit_sec = 300
 eval_cmd = "/eval/run.sh"
 prompt = "Read /run/spec.md and /work/description.md, then solve the task in /work."
