@@ -88,13 +88,11 @@ class TestBenchHelpers(unittest.TestCase):
                     agent_name="dummy",
                     agent_cfg=agent_cfg,
                     model="openai/gpt-5.3-codex",
-                    network="off",
                     timeout_sec=5,
                     extra_env={"OPENAI_API_KEY": "dummy"},
                 )
 
             cmd = " ".join(captured["cmd"])
-            self.assertIn("--network none", cmd)
             self.assertIn(":/work:rw", cmd)
             self.assertIn(":/run:ro", cmd)
             self.assertIn("BENCH_AGENT=dummy", cmd)
@@ -114,7 +112,6 @@ class TestBenchHelpers(unittest.TestCase):
                         agent_name="dummy",
                         agent_cfg=agent_cfg,
                         model="openai/gpt-5.3-codex",
-                        network="off",
                         timeout_sec=5,
                         extra_env={"OPENAI_API_KEY": "dummy"},
                         verbose=True,
@@ -150,7 +147,6 @@ class TestBenchHelpers(unittest.TestCase):
                     agent_name="dummy",
                     agent_cfg=agent_cfg,
                     model="openai/gpt-5.3-codex",
-                    network="on",
                     timeout_sec=5,
                     extra_env=None,
                 )
@@ -209,7 +205,6 @@ class TestBenchHelpers(unittest.TestCase):
                 bench._run_docker_shell(
                     image="scibench:0.1",
                     workdir=workdir,
-                    network="on",
                     cmd=["python3", "-V"],
                 )
             self.assertNotIn("-it", captured["cmd"])
@@ -218,7 +213,6 @@ class TestBenchHelpers(unittest.TestCase):
                 bench._run_docker_shell(
                     image="scibench:0.1",
                     workdir=workdir,
-                    network="on",
                     cmd=["bash"],
                 )
             self.assertIn("-it", captured["cmd"])
@@ -552,7 +546,6 @@ use_shared_workspace = true
                     eval_dir=eval_dir,
                     eval_cmd="/eval/run.sh",
                     shared_eval_dir=shared_eval_dir,
-                    network="off",
                     timeout_sec=5,
                 )
 

@@ -24,6 +24,7 @@ python3 scripts/build_image.py
 ## C++ Utility Libraries
 
 - CLI parsing: `cxxopts` (`libcxxopts-dev`)
+- Unit testing: `Catch2` (ref: `v3.13.0`, installed under `/usr/local` with CMake package config)
 - Header-only math/array libs installed under `/usr/local/include`:
   - `experimental/mdspan` (ref: `mdspan-0.6.0`)
   - `xtl` (ref: `0.8.2`)
@@ -32,6 +33,13 @@ python3 scripts/build_image.py
 - TOML parsing: `toml11` (ref: `v4.4.0`, installed under `/usr/local/include` and CMake package config)
 
 `xtensor` includes built-in NPY helpers via `xtensor/xnpy.hpp`.
+
+Typical Catch2 usage with CMake:
+
+```bash
+find_package(Catch2 3 REQUIRED)
+target_link_libraries(your_tests PRIVATE Catch2::Catch2WithMain)
+```
 
 ## Fortran Utility Libraries
 

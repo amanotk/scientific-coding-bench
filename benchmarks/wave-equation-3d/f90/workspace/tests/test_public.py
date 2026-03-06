@@ -21,8 +21,9 @@ def _load_cases():
 
 
 def _build_exe() -> Path:
-    subprocess.run(["make", "-s", "clean", "all"], check=True)
-    exe = Path("bin/fd3d_cli")
+    subprocess.run(["cmake", "-S", ".", "-B", "build"], check=True)
+    subprocess.run(["cmake", "--build", "build"], check=True)
+    exe = Path("build/bin/fd3d_cli")
     assert exe.exists()
     return exe
 

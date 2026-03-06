@@ -805,7 +805,6 @@ def _run_docker_eval(
     eval_dir: Path,
     eval_cmd: str,
     shared_eval_dir: Path | None,
-    network: str,
     timeout_sec: int,
     extra_env: dict[str, str] | None = None,
     verbose: bool = False,
@@ -844,13 +843,6 @@ def _run_docker_eval(
     ]
     if shared_eval_dir is not None:
         docker_cmd += ["-v", f"{str(shared_eval_dir)}:/eval_shared:ro"]
-    if network == "off":
-        docker_cmd += ["--network", "none"]
-    elif network == "on":
-        pass
-    else:
-        raise ValueError("network must be 'on' or 'off'")
-
     if extra_env:
         for k, v in extra_env.items():
             docker_cmd += ["-e", f"{k}={v}"]
@@ -878,9 +870,7 @@ def _run_docker_eval(
     return proc, _extract_inner_sec(proc.stdout, proc.stderr)
 
 
-def _run_docker_shell(
-    *, image: str, workdir: Path, network: str, cmd: list[str]
-) -> int:
+def _run_docker_shell(*, image: str, workdir: Path, cmd: list[str]) -> int:
     uid = os.getuid() if hasattr(os, "getuid") else 1000
     gid = os.getgid() if hasattr(os, "getgid") else 1000
 
@@ -907,13 +897,6 @@ def _run_docker_shell(
         "-w",
         "/work",
     ]
-    if network == "off":
-        docker_cmd += ["--network", "none"]
-    elif network == "on":
-        pass
-    else:
-        raise ValueError("network must be 'on' or 'off'")
-
     if cmd == ["bash"]:
         docker_cmd += ["-it"]
 
@@ -929,7 +912,6 @@ def _run_agent_in_docker(
     agent_name: str,
     agent_cfg: dict[str, Any],
     model: str,
-    network: str,
     timeout_sec: int,
     extra_env: dict[str, str] | None = None,
     verbose: bool = False,
@@ -1026,13 +1008,6 @@ def _run_agent_in_docker(
             raise ValueError(f"Agent {agent_name!r} env must be an object")
         for k, v in env_kv.items():
             docker_cmd += ["-e", f"{k}={v}"]
-
-    if network == "off":
-        docker_cmd += ["--network", "none"]
-    elif network == "on":
-        pass
-    else:
-        raise ValueError("network must be 'on' or 'off'")
 
     if extra_env:
         for k, v in extra_env.items():
@@ -1220,7 +1195,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
     _vprint(verbose, f"task={suite}/{task_id}")
     _vprint(
         verbose,
-        f"image={args.image} network={args.network} timeout_sec={timeout_sec}",
+        f"image={args.image} timeout_sec={timeout_sec}",
     )
 
     try:
@@ -1230,7 +1205,6 @@ def cmd_eval(args: argparse.Namespace) -> int:
             eval_dir=task.eval_dir,
             eval_cmd=eval_cmd,
             shared_eval_dir=shared_eval_dir,
-            network=args.network,
             timeout_sec=timeout_sec,
             verbose=verbose,
             cmd_log_path=logs_dir / "eval.docker_cmd.txt",
@@ -1340,7 +1314,6 @@ def cmd_shell(args: argparse.Namespace) -> int:
         return _run_docker_shell(
             image=args.image,
             workdir=workdir,
-            network=args.network,
             cmd=cmd,
         )
     except FileNotFoundError as e:
@@ -1487,7 +1460,6 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
                 agent_name=agent_name,
                 agent_cfg=agent_cfg,
                 model=model,
-                network=args.network,
                 timeout_sec=timeout_sec,
                 extra_env=extra_env,
                 verbose=verbose,
@@ -1548,7 +1520,6 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             eval_dir=task.eval_dir,
             eval_cmd=eval_cmd,
             shared_eval_dir=shared_eval_dir,
-            network=args.network,
             timeout_sec=timeout_sec,
             verbose=False,
             cmd_log_path=logs_dir / "eval.docker_cmd.txt",
@@ -1619,7 +1590,6 @@ def main(argv: list[str]) -> int:
     p_run.add_argument("agents", help="Path to single-agent TOML config")
     p_run.add_argument("task", help="Task in the form <suite>/<task_id>")
     p_run.add_argument("--image", default="scibench:0.1", help="Docker image tag")
-    p_run.add_argument("--network", choices=["on", "off"], default="on")
     p_run.add_argument("--timeout-sec", type=int, default=600)
     p_run.add_argument("--run-id", default="")
     p_run.add_argument("--result-dir", default="")
@@ -1629,7 +1599,6 @@ def main(argv: list[str]) -> int:
     p_eval.add_argument("task", help="Task in the form <suite>/<task_id>")
     p_eval.add_argument("--workdir", required=True)
     p_eval.add_argument("--image", default="scibench:0.1", help="Docker image tag")
-    p_eval.add_argument("--network", choices=["on", "off"], default="on")
     p_eval.add_argument("--timeout-sec", type=int, default=600)
     p_eval.add_argument("--run-id", default="")
     p_eval.add_argument("--result-dir", default="")
@@ -1648,7 +1617,6 @@ def main(argv: list[str]) -> int:
     p_shell.add_argument("agents", help="Path to single-agent TOML config")
     p_shell.add_argument("task", help="Task in the form <suite>/<task_id>")
     p_shell.add_argument("--image", default="scibench:0.1", help="Docker image tag")
-    p_shell.add_argument("--network", choices=["on", "off"], default="on")
     p_shell.add_argument("--run-id", default="")
     p_shell.add_argument("--result-dir", default="")
     p_shell.add_argument(

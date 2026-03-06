@@ -108,13 +108,14 @@ What happens:
 - Results and logs are still written to a fresh run directory.
 
 
-## Network Modes
+## Networking
 
-`--network on|off` controls the Docker network mode for both the agent and eval
-containers:
+Docker runs always use normal network access for both the agent and eval
+containers.
 
-- `on`: default Docker networking
-- `off`: `docker run --network none`
+If you want to limit model-side web search or similar features, do that through
+the selected agent's `model_options` or provider-specific settings rather than a
+runner-level Docker network flag.
 
 
 ## Secrets / Credentials
@@ -172,9 +173,9 @@ The forwarded keys are printed to stderr and recorded in:
 
 - `runs/.../logs/agent.forwarded_env.txt`
 
-With network enabled, assume anything readable in the container can be exfiltrated.
-The runner keeps `runs/` free of credentials by design (do not write secrets into
-`workdir/` and do not print secrets into logs).
+Assume anything readable in the container can be exfiltrated. The runner keeps
+`runs/` free of credentials by design (do not write secrets into `workdir/` and
+do not print secrets into logs).
 
 
 ## Result Format (v0)

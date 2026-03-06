@@ -3,6 +3,7 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 ARG FLAP_VERSION=1.2.16
+ARG CATCH2_REF=v3.13.0
 ARG MDSPAN_REF=mdspan-0.6.0
 ARG XTL_REF=0.8.2
 ARG XSIMD_REF=14.0.0
@@ -34,6 +35,13 @@ RUN apt-get update \
     python3-numpy python3-scipy python3-matplotlib python3-pytest python3-toml \
   && python3 -m pip install --break-system-packages --no-cache-dir fypp \
   && rm -rf /var/lib/apt/lists/* \
+  && mkdir -p /tmp/catch2-src \
+  && curl -LsSf "https://api.github.com/repos/catchorg/Catch2/tarball/${CATCH2_REF}" \
+    | tar -xz --strip-components=1 -C /tmp/catch2-src \
+  && cmake -S /tmp/catch2-src -B /tmp/catch2-build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF \
+  && cmake --build /tmp/catch2-build -j"$(nproc)" \
+  && cmake --install /tmp/catch2-build \
+  && rm -rf /tmp/catch2-src /tmp/catch2-build \
   && mkdir -p /tmp/mdspan-src \
   && curl -LsSf "https://api.github.com/repos/kokkos/mdspan/tarball/${MDSPAN_REF}" \
     | tar -xz --strip-components=1 -C /tmp/mdspan-src \

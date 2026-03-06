@@ -5,8 +5,9 @@ from rk2_shared import assert_close_seq, load_cases, run_cli
 
 
 def _build_exe() -> Path:
-    subprocess.run(["make", "-s", "clean", "all"], check=True)
-    exe = Path("bin/rk2_cli")
+    subprocess.run(["cmake", "-S", ".", "-B", "build"], check=True)
+    subprocess.run(["cmake", "--build", "build"], check=True)
+    exe = Path("build/bin/rk2_cli")
     assert exe.exists()
     return exe
 

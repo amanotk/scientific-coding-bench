@@ -19,8 +19,9 @@ def _load_cases():
 
 
 def _build_exe():
-    subprocess.run(["make", "-s", "clean", "all"], check=True)
-    exe = Path("bin/rk2_cli")
+    subprocess.run(["cmake", "-S", ".", "-B", "build"], check=True)
+    subprocess.run(["cmake", "--build", "build"], check=True)
+    exe = Path("build/bin/rk2_cli")
     assert exe.exists()
     return exe
 
