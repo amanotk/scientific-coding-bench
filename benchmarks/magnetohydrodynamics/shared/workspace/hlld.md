@@ -404,12 +404,13 @@ All fluxes use the conservative component ordering defined in
   If $|D_\alpha|$ is extremely small, do not apply the raw starred-state update
   by dividing through that value. Instead, replace the starred transverse
   updates with:
-  ```math
-  v_\alpha^\ast = v_\alpha, \quad
-  w_\alpha^\ast = w_\alpha, \quad
-  B_{y,\alpha}^\ast = B_{y,\alpha}, \quad
-  B_{z,\alpha}^\ast = B_{z,\alpha}.
-  ```
+
+```math
+v_\alpha^\ast = v_\alpha, \quad
+w_\alpha^\ast = w_\alpha, \quad
+B_{y,\alpha}^\ast = B_{y,\alpha}, \quad
+B_{z,\alpha}^\ast = B_{z,\alpha}.
+```
 
 - Small $B_x$
   When $B_x=0$, the rotational waves collapse and the double-star regions become
