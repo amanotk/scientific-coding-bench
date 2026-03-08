@@ -54,6 +54,120 @@ class TestBenchHelpers(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bench._load_agent_config(p)
 
+    def test_extract_agent_usage_metrics_for_opencode_result(self):
+        stdout = "\n".join(
+            [
+                '{"type":"result","usage":{"input_tokens":17101,"cache_creation_input_tokens":0,"cache_read_input_tokens":445056,"output_tokens":6237},"total_cost_usd":0.463958}',
+                "",
+            ]
+        )
+
+        metrics = bench._extract_agent_usage_metrics("opencode", stdout)
+
+        self.assertEqual(metrics["agent_input_tokens"], 17101)
+        self.assertEqual(metrics["agent_output_tokens"], 6237)
+        self.assertEqual(metrics["agent_cached_input_tokens"], 445056)
+        self.assertEqual(metrics["agent_cache_creation_input_tokens"], 0)
+
+    def test_extract_agent_usage_metrics_for_claude_result(self):
+        stdout = "\n".join(
+            [
+                '{"type":"result","subtype":"success","usage":{"input_tokens":2048,"output_tokens":512,"cache_read_input_tokens":4096}}',
+                "",
+            ]
+        )
+
+        metrics = bench._extract_agent_usage_metrics("claude", stdout)
+
+        self.assertEqual(metrics["agent_input_tokens"], 2048)
+        self.assertEqual(metrics["agent_output_tokens"], 512)
+        self.assertEqual(metrics["agent_cached_input_tokens"], 4096)
+
+    def test_extract_agent_usage_metrics_for_codex_turn_completed(self):
+        stdout = "\n".join(
+            [
+                '{"type":"thread.started","thread_id":"abc"}',
+                '{"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122}}',
+                "",
+            ]
+        )
+
+        metrics = bench._extract_agent_usage_metrics("codex", stdout)
+
+        self.assertEqual(metrics["agent_input_tokens"], 24763)
+        self.assertEqual(metrics["agent_output_tokens"], 122)
+        self.assertEqual(metrics["agent_cached_input_tokens"], 24448)
+
+    def test_extract_agent_usage_metrics_ignores_plain_text_opencode_output(self):
+        metrics = bench._extract_agent_usage_metrics(
+            "opencode", "Thinking: plain text output without JSON\n"
+        )
+        self.assertEqual(metrics, {})
+
+    def test_extract_agent_usage_metrics_for_copilot_stderr_summary(self):
+        stderr = "\n".join(
+            [
+                "Total usage est:        0 Premium requests",
+                "Breakdown by AI model:",
+                " gpt-5-mini              269.2k in, 6.7k out, 249.9k cached (Est. 0 Premium requests)",
+                "",
+            ]
+        )
+
+        metrics = bench._extract_agent_usage_metrics("copilot", "", stderr)
+
+        self.assertEqual(metrics["agent_input_tokens"], 269200)
+        self.assertEqual(metrics["agent_output_tokens"], 6700)
+        self.assertEqual(metrics["agent_cached_input_tokens"], 249900)
+        self.assertEqual(metrics["agent_usage_model"], "gpt-5-mini")
+
+    def test_extract_opencode_stats_metrics(self):
+        stdout = "\n".join(
+            [
+                "┌────────────────────────────────────────────────────────┐",
+                "│                    COST & TOKENS                       │",
+                "├────────────────────────────────────────────────────────┤",
+                "│Total Cost                                        $0.46 │",
+                "│Input                                             17.1k │",
+                "│Output                                             6.2k │",
+                "│Cache Read                                       445.1k │",
+                "│Cache Write                                         0.0k │",
+                "└────────────────────────────────────────────────────────┘",
+                "",
+            ]
+        )
+
+        metrics = bench._extract_opencode_stats_metrics(stdout)
+
+        self.assertEqual(metrics["agent_input_tokens"], 17100)
+        self.assertEqual(metrics["agent_output_tokens"], 6200)
+        self.assertEqual(metrics["agent_cached_input_tokens"], 445100)
+        self.assertEqual(metrics["agent_cache_creation_input_tokens"], 0)
+
+    def test_print_result_summary_formats_token_metrics_in_kilotokens(self):
+        out = StringIO()
+        with redirect_stdout(out):
+            bench._print_result_summary(
+                "s/t",
+                Path("/tmp/run"),
+                {
+                    "status": "passed",
+                    "score": 1.0,
+                    "metrics": {
+                        "agent_input_tokens": 269200,
+                        "agent_output_tokens": 6700,
+                        "agent_cached_input_tokens": 249900,
+                        "eval_inner_sec": 0.25,
+                    },
+                },
+            )
+
+        text = out.getvalue()
+        self.assertIn("agent_input_tokens: 269.2k", text)
+        self.assertIn("agent_output_tokens: 6.7k", text)
+        self.assertIn("agent_cached_input_tokens: 249.9k", text)
+        self.assertIn("eval_inner_sec: 0.25", text)
+
     def test_run_agent_in_docker_builds_expected_command(self):
         with tempfile.TemporaryDirectory() as td:
             workdir = Path(td) / "work"
@@ -345,6 +459,19 @@ class TestBenchHelpers(unittest.TestCase):
         self.assertEqual(rendered, "[agent:claude] tool: Read (start)")
         self.assertTrue(suppress_raw)
 
+    def test_format_agent_stream_event_claude_result_event(self):
+        state = bench._StreamPrettyState(agent_name="claude")
+        parsed, rendered, suppress_raw = bench._format_agent_stream_event(
+            "agent:claude",
+            '{"type":"result","subtype":"success","result":"Implemented solver and tests pass.","usage":{"input_tokens":10,"output_tokens":20}}\n',
+            state=state,
+        )
+        self.assertTrue(parsed)
+        self.assertEqual(
+            rendered, "[agent:claude] text: Implemented solver and tests pass."
+        )
+        self.assertTrue(suppress_raw)
+
     def test_run_capture_stream_pretty_timeline_renders_json_events(self):
         err = StringIO()
         script = (
@@ -417,6 +544,52 @@ class TestBenchHelpers(unittest.TestCase):
         self.assertTrue(parsed)
         self.assertEqual(rendered, "[agent:copilot] permission: shell (waiting)")
         self.assertTrue(suppress_raw)
+
+    def test_format_agent_stream_event_opencode_specialized_labels(self):
+        state = bench._StreamPrettyState(agent_name="opencode")
+        parsed, rendered, suppress_raw = bench._format_agent_stream_event(
+            "agent:opencode",
+            '{"type":"reasoning","part":{"type":"reasoning","text":"**Assessing repo tasks**"}}\n',
+            state=state,
+        )
+        self.assertTrue(parsed)
+        self.assertEqual(rendered, "[agent:opencode] plan: Assessing repo tasks")
+        self.assertTrue(suppress_raw)
+
+        parsed, rendered, suppress_raw = bench._format_agent_stream_event(
+            "agent:opencode",
+            '{"type":"tool_use","part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"/work/hlld.md"}}}}\n',
+            state=state,
+        )
+        self.assertTrue(parsed)
+        self.assertEqual(rendered, "[agent:opencode] tool: read /work/hlld.md")
+        self.assertTrue(suppress_raw)
+
+    def test_run_capture_stream_pretty_timeline_renders_opencode_json_events(self):
+        err = StringIO()
+        script = (
+            "import json\n"
+            "print(json.dumps({'type':'reasoning','part':{'type':'reasoning','text':'**Check tests**'}}))\n"
+            "print(json.dumps({'type':'tool_use','part':{'type':'tool','tool':'bash','state':{'status':'completed','input':{'command':'pytest -q'}}}}))\n"
+            "print(json.dumps({'type':'result','result':'done summary','usage':{'input_tokens':1,'output_tokens':2}}))\n"
+            "print(json.dumps({'type':'step_finish','part':{'type':'step-finish'}}))\n"
+        )
+        with redirect_stderr(err):
+            proc = bench._run_capture_stream(
+                ["python3", "-c", script],
+                timeout_sec=10,
+                verbose=True,
+                phase="agent:opencode",
+                pretty_timeline=True,
+            )
+
+        self.assertEqual(proc.returncode, 0)
+        streamed = err.getvalue()
+        self.assertIn("[agent:opencode] plan: Check tests", streamed)
+        self.assertIn("[agent:opencode] tool: bash pytest -q", streamed)
+        self.assertIn("[agent:opencode] text: done summary", streamed)
+        self.assertNotIn('[agent:opencode] stdout: {"type": "reasoning"', streamed)
+        self.assertNotIn('[agent:opencode] stdout: {"type": "result"', streamed)
 
     def test_run_capture_stream_pretty_timeline_formats_copilot_plain_lines(self):
         err = StringIO()
@@ -772,6 +945,679 @@ name = "opencode"
 
             stderr_text = err.getvalue()
             self.assertIn("=== RUN SETUP ===", stderr_text)
+
+    def test_run_writes_failure_result_on_agent_timeout(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            agents_default_path = td_path / "agents_default.toml"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_default_path.write_text(
+                """
+version = 1
+
+[agents.opencode]
+mode = "docker"
+enabled_by_default = true
+model = "openai/gpt-5.3-codex"
+pass_env = []
+pre = []
+cmd = "true"
+
+[[agents.opencode.bins]]
+host = "true"
+container = "/usr/local/bin/true"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_toml = td_path / "opencode.toml"
+            _write_agent_toml(
+                agents_toml,
+                """
+name = "opencode"
+""".lstrip(),
+            )
+
+            timeout_exc = subprocess.TimeoutExpired(
+                cmd=["docker", "run"],
+                timeout=10,
+                output="partial out\n",
+                stderr="partial err",
+            )
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.object(
+                    bench, "_run_agent_in_docker", side_effect=timeout_exc
+                ),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(
+                        [
+                            "run",
+                            str(agents_toml),
+                            "s/t",
+                            "--image",
+                            "scibench:0.1",
+                        ]
+                    )
+
+            self.assertEqual(rc, 1)
+            run_dirs = list(runs_root.glob("*/s/t"))
+            self.assertEqual(len(run_dirs), 1)
+            run_dir = run_dirs[0]
+            result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["score"], 0.0)
+            self.assertEqual(result["error"], "agent_timeout")
+            self.assertIn("during agent phase", result["message"])
+            self.assertIn("Timed out after 10s during agent phase", err.getvalue())
+            self.assertIn("[s/t] Result", out.getvalue())
+
+    def test_run_writes_failure_result_on_eval_timeout(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            agents_default_path = td_path / "agents_default.toml"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_default_path.write_text(
+                """
+version = 1
+
+[agents.opencode]
+mode = "docker"
+enabled_by_default = true
+model = "openai/gpt-5.3-codex"
+pass_env = []
+pre = []
+cmd = "true"
+
+[[agents.opencode.bins]]
+host = "true"
+container = "/usr/local/bin/true"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_toml = td_path / "opencode.toml"
+            _write_agent_toml(
+                agents_toml,
+                """
+name = "opencode"
+""".lstrip(),
+            )
+
+            def fake_agent(*args, **kwargs):
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""), 0.03
+
+            timeout_exc = subprocess.TimeoutExpired(cmd=["docker", "run"], timeout=10)
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.object(
+                    bench, "_run_agent_in_docker", side_effect=fake_agent
+                ),
+                mock.patch.object(bench, "_run_docker_eval", side_effect=timeout_exc),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(
+                        [
+                            "run",
+                            str(agents_toml),
+                            "s/t",
+                            "--image",
+                            "scibench:0.1",
+                        ]
+                    )
+
+            self.assertEqual(rc, 1)
+            run_dirs = list(runs_root.glob("*/s/t"))
+            self.assertEqual(len(run_dirs), 1)
+            run_dir = run_dirs[0]
+            result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["error"], "eval_timeout")
+            self.assertIn("during eval phase", result["message"])
+            self.assertEqual(result["metrics"]["agent_inner_sec"], 0.03)
+            self.assertIn("Timed out after 10s during eval phase", err.getvalue())
+            self.assertIn("[s/t] Result", out.getvalue())
+
+    def test_run_appends_agent_usage_metrics_to_result(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            agents_default_path = td_path / "agents_default.toml"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_default_path.write_text(
+                """
+version = 1
+
+[agents.codex]
+mode = "docker"
+enabled_by_default = true
+model = "gpt-5.3-codex"
+pass_env = []
+pre = []
+cmd = "true"
+
+[[agents.codex.bins]]
+host = "true"
+container = "/usr/local/bin/true"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_toml = td_path / "codex.toml"
+            _write_agent_toml(
+                agents_toml,
+                """
+name = "codex"
+""".lstrip(),
+            )
+
+            agent_stdout = (
+                '{"type":"turn.completed","usage":{"input_tokens":24763,'
+                '"cached_input_tokens":24448,"output_tokens":122}}\n'
+            )
+
+            def fake_agent(*args, **kwargs):
+                cmd = ["docker", "run"]
+                return (
+                    subprocess.CompletedProcess(cmd, 0, stdout=agent_stdout, stderr=""),
+                    1.25,
+                )
+
+            def fake_eval(*args, **kwargs):
+                workdir = Path(kwargs["workdir"])
+                (workdir / "result.json").write_text(
+                    json.dumps({"status": "passed", "score": 1.0}) + "\n",
+                    encoding="utf-8",
+                )
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""), 0.5
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.object(
+                    bench, "_run_agent_in_docker", side_effect=fake_agent
+                ),
+                mock.patch.object(bench, "_run_docker_eval", side_effect=fake_eval),
+            ):
+                rc = bench.main(
+                    [
+                        "run",
+                        str(agents_toml),
+                        "s/t",
+                        "--image",
+                        "scibench:0.1",
+                    ]
+                )
+
+            self.assertEqual(rc, 0)
+            run_dirs = list(runs_root.glob("*/s/t"))
+            self.assertEqual(len(run_dirs), 1)
+            result = json.loads(
+                (run_dirs[0] / "result.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(result["metrics"]["agent_input_tokens"], 24763)
+            self.assertEqual(result["metrics"]["agent_cached_input_tokens"], 24448)
+            self.assertEqual(result["metrics"]["agent_output_tokens"], 122)
+            self.assertEqual(result["metrics"]["agent_inner_sec"], 1.25)
+            self.assertEqual(result["metrics"]["eval_inner_sec"], 0.5)
+
+    def test_run_appends_copilot_usage_metrics_from_stderr(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            agents_default_path = td_path / "agents_default.toml"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_default_path.write_text(
+                """
+version = 1
+
+[agents.copilot]
+mode = "docker"
+enabled_by_default = true
+model = "gpt-5-mini"
+pass_env = []
+pre = []
+cmd = "true"
+
+[[agents.copilot.bins]]
+host = "true"
+container = "/usr/local/bin/true"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_toml = td_path / "copilot.toml"
+            _write_agent_toml(
+                agents_toml,
+                """
+name = "copilot"
+model = "gpt-5-mini"
+""".lstrip(),
+            )
+
+            agent_stderr = (
+                "Total usage est:        0 Premium requests\n"
+                "Breakdown by AI model:\n"
+                " gpt-5-mini              269.2k in, 6.7k out, 249.9k cached (Est. 0 Premium requests)\n"
+            )
+
+            def fake_agent(*args, **kwargs):
+                cmd = ["docker", "run"]
+                return (
+                    subprocess.CompletedProcess(cmd, 0, stdout="", stderr=agent_stderr),
+                    2.0,
+                )
+
+            def fake_eval(*args, **kwargs):
+                workdir = Path(kwargs["workdir"])
+                (workdir / "result.json").write_text(
+                    json.dumps({"status": "passed", "score": 1.0}) + "\n",
+                    encoding="utf-8",
+                )
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""), 0.25
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.object(
+                    bench, "_run_agent_in_docker", side_effect=fake_agent
+                ),
+                mock.patch.object(bench, "_run_docker_eval", side_effect=fake_eval),
+            ):
+                rc = bench.main(
+                    [
+                        "run",
+                        str(agents_toml),
+                        "s/t",
+                        "--image",
+                        "scibench:0.1",
+                    ]
+                )
+
+            self.assertEqual(rc, 0)
+            run_dirs = list(runs_root.glob("*/s/t"))
+            self.assertEqual(len(run_dirs), 1)
+            result = json.loads(
+                (run_dirs[0] / "result.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(result["metrics"]["agent_input_tokens"], 269200)
+            self.assertEqual(result["metrics"]["agent_output_tokens"], 6700)
+            self.assertEqual(result["metrics"]["agent_cached_input_tokens"], 249900)
+            self.assertEqual(result["metrics"]["agent_usage_model"], "gpt-5-mini")
+
+    def test_run_appends_opencode_usage_metrics_from_postrun_stats(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            agents_default_path = td_path / "agents_default.toml"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_default_path.write_text(
+                """
+version = 1
+
+[agents.opencode]
+mode = "docker"
+enabled_by_default = true
+model = "openai/gpt-5.3-codex"
+pass_env = []
+pre = []
+cmd = "true"
+
+[[agents.opencode.bins]]
+host = "true"
+container = "/usr/local/bin/true"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_toml = td_path / "opencode.toml"
+            _write_agent_toml(
+                agents_toml,
+                """
+name = "opencode"
+""".lstrip(),
+            )
+
+            def fake_agent(*args, **kwargs):
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="plain output\n", stderr=""
+                ), 1.5
+
+            def fake_eval(*args, **kwargs):
+                workdir = Path(kwargs["workdir"])
+                (workdir / "result.json").write_text(
+                    json.dumps({"status": "passed", "score": 1.0}) + "\n",
+                    encoding="utf-8",
+                )
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""), 0.25
+
+            stats_output = "\n".join(
+                [
+                    "┌────────────────────────────────────────────────────────┐",
+                    "│                    COST & TOKENS                       │",
+                    "├────────────────────────────────────────────────────────┤",
+                    "│Total Cost                                        $0.46 │",
+                    "│Input                                             17.1k │",
+                    "│Output                                             6.2k │",
+                    "│Cache Read                                       445.1k │",
+                    "│Cache Write                                         0.0k │",
+                    "└────────────────────────────────────────────────────────┘",
+                    "",
+                ]
+            )
+
+            def fake_subprocess_run(cmd, **kwargs):
+                self.assertEqual(
+                    cmd,
+                    ["opencode", "stats", "--models", "1"],
+                )
+                self.assertIn("XDG_DATA_HOME", kwargs["env"])
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout=stats_output, stderr=""
+                )
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.object(
+                    bench, "_run_agent_in_docker", side_effect=fake_agent
+                ),
+                mock.patch.object(bench, "_run_docker_eval", side_effect=fake_eval),
+                mock.patch.object(
+                    bench.subprocess, "run", side_effect=fake_subprocess_run
+                ),
+            ):
+                rc = bench.main(
+                    [
+                        "run",
+                        str(agents_toml),
+                        "s/t",
+                        "--image",
+                        "scibench:0.1",
+                    ]
+                )
+
+            self.assertEqual(rc, 0)
+            run_dirs = list(runs_root.glob("*/s/t"))
+            self.assertEqual(len(run_dirs), 1)
+            result = json.loads(
+                (run_dirs[0] / "result.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(result["metrics"]["agent_input_tokens"], 17100)
+            self.assertEqual(result["metrics"]["agent_output_tokens"], 6200)
+            self.assertEqual(result["metrics"]["agent_cached_input_tokens"], 445100)
+
+    def test_run_preserves_precise_opencode_json_metrics_over_stats_fallback(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            agents_default_path = td_path / "agents_default.toml"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_default_path.write_text(
+                """
+version = 1
+
+[agents.opencode]
+mode = "docker"
+enabled_by_default = true
+model = "openai/gpt-5.3-codex"
+pass_env = []
+pre = []
+cmd = "true"
+
+[[agents.opencode.bins]]
+host = "true"
+container = "/usr/local/bin/true"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_toml = td_path / "opencode.toml"
+            _write_agent_toml(
+                agents_toml,
+                """
+name = "opencode"
+""".lstrip(),
+            )
+
+            agent_stdout = (
+                '{"type":"result","usage":{"input_tokens":17101,'
+                '"cache_creation_input_tokens":0,"cache_read_input_tokens":445056,'
+                '"output_tokens":6237},"total_cost_usd":0.463958}\n'
+            )
+
+            def fake_agent(*args, **kwargs):
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout=agent_stdout, stderr=""
+                ), 1.5
+
+            def fake_eval(*args, **kwargs):
+                workdir = Path(kwargs["workdir"])
+                (workdir / "result.json").write_text(
+                    json.dumps({"status": "passed", "score": 1.0}) + "\n",
+                    encoding="utf-8",
+                )
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""), 0.25
+
+            stats_output = "\n".join(
+                [
+                    "┌────────────────────────────────────────────────────────┐",
+                    "│                    COST & TOKENS                       │",
+                    "├────────────────────────────────────────────────────────┤",
+                    "│Total Cost                                        $0.46 │",
+                    "│Input                                             17.1k │",
+                    "│Output                                             6.2k │",
+                    "│Cache Read                                       445.1k │",
+                    "│Cache Write                                         0.0k │",
+                    "└────────────────────────────────────────────────────────┘",
+                    "",
+                ]
+            )
+
+            def fake_subprocess_run(cmd, **kwargs):
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout=stats_output, stderr=""
+                )
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.object(
+                    bench, "_run_agent_in_docker", side_effect=fake_agent
+                ),
+                mock.patch.object(bench, "_run_docker_eval", side_effect=fake_eval),
+                mock.patch.object(
+                    bench.subprocess, "run", side_effect=fake_subprocess_run
+                ),
+            ):
+                rc = bench.main(
+                    [
+                        "run",
+                        str(agents_toml),
+                        "s/t",
+                        "--image",
+                        "scibench:0.1",
+                    ]
+                )
+
+            self.assertEqual(rc, 0)
+            run_dirs = list(runs_root.glob("*/s/t"))
+            self.assertEqual(len(run_dirs), 1)
+            result = json.loads(
+                (run_dirs[0] / "result.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(result["metrics"]["agent_input_tokens"], 17101)
+            self.assertEqual(result["metrics"]["agent_output_tokens"], 6237)
+            self.assertEqual(result["metrics"]["agent_cached_input_tokens"], 445056)
+            self.assertEqual(result["metrics"]["agent_cache_creation_input_tokens"], 0)
+
+    def test_eval_writes_failure_result_on_timeout(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            task_dir = bench_root / "s" / "t"
+            workdir = td_path / "workdir"
+            workdir.mkdir()
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            timeout_exc = subprocess.TimeoutExpired(cmd=["docker", "run"], timeout=10)
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "_run_docker_eval", side_effect=timeout_exc),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(
+                        [
+                            "eval",
+                            "s/t",
+                            "--workdir",
+                            str(workdir),
+                            "--image",
+                            "scibench:0.1",
+                        ]
+                    )
+
+            self.assertEqual(rc, 1)
+            run_dirs = list(runs_root.glob("*/s/t"))
+            self.assertEqual(len(run_dirs), 1)
+            run_dir = run_dirs[0]
+            result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["error"], "eval_timeout")
+            self.assertIn("during eval phase", result["message"])
+            self.assertIn("Timed out after 10s during eval phase", err.getvalue())
+            self.assertIn("[s/t] Result", out.getvalue())
 
 
 class TestBenchCheckCommand(unittest.TestCase):
