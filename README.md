@@ -58,6 +58,17 @@ Run a task:
 python3 runner/bench.py run sample/opencode.toml demo/py --image scibench:0.1
 ```
 
+Run the tiny OpenCode smoke task:
+
+```bash
+python3 runner/bench.py run sample/opencode-smoke.toml smoke/py --image scibench:0.1
+```
+
+Runner smoke tests:
+
+- `python3 -m unittest -q tests.test_runner_bench.TestOpenCodeSmoke`
+- Set `SCIBENCH_SKIP_OPENCODE_SMOKE=1` to skip the live OpenCode smoke run.
+
 Eval only:
 
 ```bash

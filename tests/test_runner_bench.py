@@ -29,6 +29,32 @@ def _write_agent_toml(path: Path, body: str) -> None:
     path.write_text("version = 1\n" + body, encoding="utf-8")
 
 
+def _assert_result_metadata(
+    case: unittest.TestCase,
+    result: dict,
+    *,
+    task: str,
+    agent: str | None = None,
+    model: str | None = None,
+    agent_exit_code=None,
+    eval_exit_code=None,
+) -> None:
+    case.assertIn("run_id", result)
+    case.assertIsInstance(result["run_id"], str)
+    case.assertTrue(result["run_id"])
+    case.assertIn("started_at", result)
+    case.assertRegex(result["started_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+    case.assertEqual(result["task"], task)
+    if agent is not None:
+        case.assertEqual(result["agent"], agent)
+    if model is not None:
+        case.assertEqual(result["model"], model)
+    if agent_exit_code is not None:
+        case.assertEqual(result["agent_exit_code"], agent_exit_code)
+    if eval_exit_code is not None:
+        case.assertEqual(result["eval_exit_code"], eval_exit_code)
+
+
 class TestBenchHelpers(unittest.TestCase):
     def test_expand_path(self):
         with mock.patch.dict(os.environ, {"SCIBENCH_X": "abc"}, clear=False):
@@ -591,6 +617,30 @@ class TestBenchHelpers(unittest.TestCase):
         self.assertNotIn('[agent:opencode] stdout: {"type": "reasoning"', streamed)
         self.assertNotIn('[agent:opencode] stdout: {"type": "result"', streamed)
 
+    def test_run_capture_stream_pretty_timeline_formats_opencode_plain_lines(self):
+        err = StringIO()
+        script = (
+            "print('Thinking: inspect smoke task')\n"
+            "print('Implementation complete. Public tests pass.')\n"
+        )
+        with redirect_stderr(err):
+            proc = bench._run_capture_stream(
+                ["python3", "-c", script],
+                timeout_sec=10,
+                verbose=True,
+                phase="agent:opencode",
+                pretty_timeline=True,
+            )
+
+        self.assertEqual(proc.returncode, 0)
+        streamed = err.getvalue()
+        self.assertIn("[agent:opencode] thinking: inspect smoke task", streamed)
+        self.assertIn(
+            "[agent:opencode] text: Implementation complete. Public tests pass.",
+            streamed,
+        )
+        self.assertNotIn("[agent:opencode] stdout: Thinking:", streamed)
+
     def test_run_capture_stream_pretty_timeline_formats_copilot_plain_lines(self):
         err = StringIO()
         script = "print('Thinking: inspect tests')\nprint('Running pytest -q')\n"
@@ -1031,6 +1081,14 @@ name = "opencode"
             self.assertEqual(result["score"], 0.0)
             self.assertEqual(result["error"], "agent_timeout")
             self.assertIn("during agent phase", result["message"])
+            _assert_result_metadata(
+                self,
+                result,
+                task="s/t",
+                agent="opencode",
+                model="openai/gpt-5.3-codex",
+                agent_exit_code="timeout",
+            )
             self.assertIn("Timed out after 10s during agent phase", err.getvalue())
             self.assertIn("[s/t] Result", out.getvalue())
 
@@ -1118,6 +1176,15 @@ name = "opencode"
             self.assertEqual(result["status"], "failed")
             self.assertEqual(result["error"], "eval_timeout")
             self.assertIn("during eval phase", result["message"])
+            _assert_result_metadata(
+                self,
+                result,
+                task="s/t",
+                agent="opencode",
+                model="openai/gpt-5.3-codex",
+                agent_exit_code=0,
+                eval_exit_code="timeout",
+            )
             self.assertEqual(result["metrics"]["agent_inner_sec"], 0.03)
             self.assertIn("Timed out after 10s during eval phase", err.getvalue())
             self.assertIn("[s/t] Result", out.getvalue())
@@ -1216,11 +1283,267 @@ name = "codex"
             result = json.loads(
                 (run_dirs[0] / "result.json").read_text(encoding="utf-8")
             )
+            _assert_result_metadata(
+                self,
+                result,
+                task="s/t",
+                agent="codex",
+                model="gpt-5.3-codex",
+                agent_exit_code=0,
+                eval_exit_code=0,
+            )
             self.assertEqual(result["metrics"]["agent_input_tokens"], 24763)
             self.assertEqual(result["metrics"]["agent_cached_input_tokens"], 24448)
             self.assertEqual(result["metrics"]["agent_output_tokens"], 122)
             self.assertEqual(result["metrics"]["agent_inner_sec"], 1.25)
             self.assertEqual(result["metrics"]["eval_inner_sec"], 0.5)
+
+    def test_run_writes_failure_result_on_agent_nonzero_exit(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            agents_default_path = td_path / "agents_default.toml"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_default_path.write_text(
+                """
+version = 1
+
+[agents.opencode]
+mode = "docker"
+enabled_by_default = true
+model = "opencode/big-pickle"
+pass_env = []
+pre = []
+cmd = "true"
+
+[[agents.opencode.bins]]
+host = "true"
+container = "/usr/local/bin/true"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_toml = td_path / "opencode.toml"
+            _write_agent_toml(agents_toml, 'name = "opencode"\n')
+
+            def fake_agent(*args, **kwargs):
+                cmd = ["docker", "run"]
+                return (
+                    subprocess.CompletedProcess(
+                        cmd,
+                        7,
+                        stdout='{"type":"result","usage":{"input_tokens":9,"output_tokens":2}}\n',
+                        stderr="boom\n",
+                    ),
+                    0.75,
+                )
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.object(
+                    bench, "_run_agent_in_docker", side_effect=fake_agent
+                ),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(
+                        ["run", str(agents_toml), "s/t", "--image", "scibench:0.1"]
+                    )
+
+            self.assertEqual(rc, 1)
+            run_dir = list(runs_root.glob("*/s/t"))[0]
+            result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["error"], "agent_failed")
+            self.assertEqual(result["message"], "Agent exited with code 7")
+            _assert_result_metadata(
+                self,
+                result,
+                task="s/t",
+                agent="opencode",
+                model="opencode/big-pickle",
+                agent_exit_code=7,
+            )
+            self.assertEqual(result["metrics"]["agent_input_tokens"], 9)
+            self.assertEqual(result["metrics"]["agent_output_tokens"], 2)
+            self.assertEqual(result["metrics"]["agent_inner_sec"], 0.75)
+
+    def test_run_writes_failure_result_on_agent_setup_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            agents_default_path = td_path / "agents_default.toml"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_default_path.write_text(
+                """
+version = 1
+
+[agents.opencode]
+mode = "docker"
+enabled_by_default = true
+model = "opencode/big-pickle"
+pass_env = []
+pre = []
+cmd = "true"
+
+[[agents.opencode.bins]]
+host = "true"
+container = "/usr/local/bin/true"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_toml = td_path / "opencode.toml"
+            _write_agent_toml(agents_toml, 'name = "opencode"\n')
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.object(
+                    bench,
+                    "_run_agent_in_docker",
+                    side_effect=FileNotFoundError("missing-opencode"),
+                ),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(
+                        ["run", str(agents_toml), "s/t", "--image", "scibench:0.1"]
+                    )
+
+            self.assertEqual(rc, 1)
+            run_dir = list(runs_root.glob("*/s/t"))[0]
+            result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["error"], "agent_setup")
+            self.assertEqual(result["message"], "missing-opencode")
+            _assert_result_metadata(
+                self,
+                result,
+                task="s/t",
+                agent="opencode",
+                model="opencode/big-pickle",
+                agent_exit_code="setup_error",
+            )
+
+    def test_run_writes_failure_result_when_eval_missing_result_json(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            agents_default_path = td_path / "agents_default.toml"
+            task_dir = bench_root / "s" / "t"
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_default_path.write_text(
+                """
+version = 1
+
+[agents.codex]
+mode = "docker"
+enabled_by_default = true
+model = "gpt-5.3-codex"
+pass_env = []
+pre = []
+cmd = "true"
+
+[[agents.codex.bins]]
+host = "true"
+container = "/usr/local/bin/true"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_toml = td_path / "codex.toml"
+            _write_agent_toml(agents_toml, 'name = "codex"\n')
+
+            def fake_agent(*args, **kwargs):
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr=""), 0.5
+
+            def fake_eval(*args, **kwargs):
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(
+                    cmd, 3, stdout="", stderr="no result\n"
+                ), 0.2
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.object(
+                    bench, "_run_agent_in_docker", side_effect=fake_agent
+                ),
+                mock.patch.object(bench, "_run_docker_eval", side_effect=fake_eval),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(
+                        ["run", str(agents_toml), "s/t", "--image", "scibench:0.1"]
+                    )
+
+            self.assertEqual(rc, 1)
+            run_dir = list(runs_root.glob("*/s/t"))[0]
+            result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["error"], "missing_result")
+            self.assertEqual(
+                result["message"], "Eval completed but did not produce result.json"
+            )
+            _assert_result_metadata(
+                self,
+                result,
+                task="s/t",
+                agent="codex",
+                model="gpt-5.3-codex",
+                agent_exit_code=0,
+                eval_exit_code=3,
+            )
 
     def test_run_appends_copilot_usage_metrics_from_stderr(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1616,8 +1939,60 @@ eval_cmd = "/eval/run.sh"
             self.assertEqual(result["status"], "failed")
             self.assertEqual(result["error"], "eval_timeout")
             self.assertIn("during eval phase", result["message"])
+            _assert_result_metadata(self, result, task="s/t", eval_exit_code="timeout")
             self.assertIn("Timed out after 10s during eval phase", err.getvalue())
             self.assertIn("[s/t] Result", out.getvalue())
+
+    def test_eval_writes_failure_result_when_result_json_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            task_dir = bench_root / "s" / "t"
+            workdir = td_path / "workdir"
+            workdir.mkdir()
+            (task_dir / "workspace").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "t"
+suite = "s"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            def fake_eval(*args, **kwargs):
+                cmd = ["docker", "run"]
+                return subprocess.CompletedProcess(cmd, 5, stdout="", stderr=""), 0.12
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "_run_docker_eval", side_effect=fake_eval),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(
+                        [
+                            "eval",
+                            "s/t",
+                            "--workdir",
+                            str(workdir),
+                            "--image",
+                            "scibench:0.1",
+                        ]
+                    )
+
+            self.assertEqual(rc, 1)
+            run_dir = list(runs_root.glob("*/s/t"))[0]
+            result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["error"], "missing_result")
+            _assert_result_metadata(self, result, task="s/t", eval_exit_code=5)
 
 
 class TestBenchCheckCommand(unittest.TestCase):
@@ -1790,3 +2165,245 @@ class TestAgentBinaries(unittest.TestCase):
                     f"stdout={proc.stdout.strip()} stderr={proc.stderr.strip()}"
                 ),
             )
+
+
+class TestOpenCodeSmoke(unittest.TestCase):
+    def test_run_uses_fake_opencode_end_to_end(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            runs_root = td_path / "runs"
+            agents_default_path = td_path / "agents_default.toml"
+            task_src = (
+                Path(__file__).resolve().parents[1] / "benchmarks" / "smoke" / "py"
+            )
+            task_dir = bench_root / "smoke" / "py"
+            shutil.copytree(task_src, task_dir)
+
+            run_sh = task_dir / "eval" / "run.sh"
+            os.chmod(run_sh, 0o755)
+
+            bin_dir = td_path / "bin"
+            bin_dir.mkdir()
+            fake_opencode = bin_dir / "opencode"
+            fake_opencode.write_text(
+                """#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    if args[:2] == [\"stats\", \"--models\"]:
+        sys.stdout.write(
+            \"\\n\".join(
+                [
+                    \"┌────────────────────────────────────────────────────────┐\",
+                    \"│                    COST & TOKENS                       │\",
+                    \"├────────────────────────────────────────────────────────┤\",
+                    \"│Total Cost                                        $0.00 │\",
+                    \"│Input                                              1.2k │\",
+                    \"│Output                                             0.1k │\",
+                    \"│Cache Read                                         0.4k │\",
+                    \"│Cache Write                                        0.0k │\",
+                    \"└────────────────────────────────────────────────────────┘\",
+                    \"\",
+                ]
+            )
+        )
+        return 0
+
+    if not args or args[0] != \"run\":
+        sys.stderr.write(f\"unsupported fake opencode args: {args}\\n\")
+        return 2
+
+    workdir = Path(os.environ[\"BENCH_WORKDIR\"])
+    target = workdir / \"src\" / \"add.py\"
+    target.write_text(
+        \"def add_numbers(a, b):\\n    return a + b\\n\",
+        encoding=\"utf-8\",
+    )
+
+    sys.stdout.write(\"Thinking: inspect smoke task\\n\")
+    sys.stdout.write(\"Thinking: implement add_numbers correctly\\n\")
+    sys.stdout.write(\"Implementation complete. Public tests pass.\\n\")
+    sys.stderr.write(\"→ Read /run/spec.md\\n\")
+    sys.stderr.write(\"$ pytest -q\\n\")
+    return 0
+
+
+if __name__ == \"__main__\":
+    raise SystemExit(main())
+""",
+                encoding="utf-8",
+            )
+            os.chmod(fake_opencode, 0o755)
+
+            agents_default_path.write_text(
+                """
+version = 1
+
+[agents.opencode]
+mode = "host"
+enabled_by_default = true
+model = "opencode/big-pickle"
+pass_env = []
+pre = []
+cmd = 'opencode run -m "$BENCH_MODEL" "$(cat "$BENCH_PROMPT_FILE")"'
+[[agents.opencode.bins]]
+host = "opencode"
+container = "/usr/local/bin/opencode"
+""".lstrip(),
+                encoding="utf-8",
+            )
+
+            agents_toml = td_path / "opencode.toml"
+            _write_agent_toml(
+                agents_toml,
+                """
+name = "opencode"
+model = "opencode/big-pickle"
+""".lstrip(),
+            )
+
+            env = dict(os.environ)
+            env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "RUNS_ROOT", runs_root),
+                mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.dict(os.environ, env, clear=True),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(
+                        [
+                            "run",
+                            str(agents_toml),
+                            "smoke/py",
+                            "--image",
+                            "scibench:0.1",
+                        ]
+                    )
+
+            self.assertEqual(rc, 0)
+            run_dirs = list(runs_root.glob("*/smoke/py"))
+            self.assertEqual(len(run_dirs), 1)
+            run_dir = run_dirs[0]
+            logs_dir = run_dir / "logs"
+
+            result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(result["score"], 1.0)
+            _assert_result_metadata(
+                self,
+                result,
+                task="smoke/py",
+                agent="opencode",
+                model="opencode/big-pickle",
+                agent_exit_code=0,
+                eval_exit_code=0,
+            )
+            self.assertEqual(result["metrics"]["agent_input_tokens"], 1200)
+            self.assertEqual(result["metrics"]["agent_output_tokens"], 100)
+            self.assertEqual(result["metrics"]["agent_cached_input_tokens"], 400)
+            self.assertEqual(result["metrics"]["agent_cache_creation_input_tokens"], 0)
+            self.assertIn("agent_inner_sec", result["metrics"])
+            self.assertIn("eval_inner_sec", result["metrics"])
+
+            self.assertIn(
+                "Thinking: inspect smoke task",
+                (logs_dir / "agent.stdout.txt").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "→ Read /run/spec.md",
+                (logs_dir / "agent.stderr.txt").read_text(encoding="utf-8"),
+            )
+            self.assertTrue((logs_dir / "agent.host_cmd.txt").exists())
+            self.assertTrue((logs_dir / "eval.docker_cmd.txt").exists())
+            self.assertTrue((run_dir / "prompt.txt").exists())
+            self.assertTrue((run_dir / "spec.md").exists())
+
+            stderr_text = err.getvalue()
+            self.assertIn("[agent:opencode] thinking: inspect smoke task", stderr_text)
+            self.assertIn(
+                "[agent:opencode] text: Implementation complete. Public tests pass.",
+                stderr_text,
+            )
+            self.assertIn("[agent:opencode] stderr: → Read /run/spec.md", stderr_text)
+
+    def test_real_opencode_smoke_task(self):
+        if os.environ.get("SCIBENCH_SKIP_OPENCODE_SMOKE") == "1":
+            self.skipTest(
+                "Skipping OpenCode smoke test via SCIBENCH_SKIP_OPENCODE_SMOKE"
+            )
+
+        opencode_path = shutil.which("opencode")
+        if not opencode_path:
+            self.skipTest(
+                "OpenCode binary not found on PATH; set SCIBENCH_SKIP_OPENCODE_SMOKE=1 to suppress this smoke test explicitly"
+            )
+        if not shutil.which("docker"):
+            self.skipTest(
+                "Docker binary not found on PATH; set SCIBENCH_SKIP_OPENCODE_SMOKE=1 to suppress this smoke test explicitly"
+            )
+
+        repo_root = Path(__file__).resolve().parents[1]
+        sample_cfg = repo_root / "sample" / "opencode-smoke.toml"
+        with tempfile.TemporaryDirectory() as td:
+            result_dir = Path(td) / "run"
+            out = StringIO()
+            err = StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = bench.main(
+                    [
+                        "run",
+                        str(sample_cfg),
+                        "smoke/py",
+                        "--image",
+                        "scibench:0.1",
+                        "--result-dir",
+                        str(result_dir),
+                    ]
+                )
+
+            self.assertEqual(
+                rc,
+                0,
+                msg=(
+                    "OpenCode smoke run failed. "
+                    f"stdout={out.getvalue()} stderr={err.getvalue()}"
+                ),
+            )
+            self.assertTrue((result_dir / "result.json").exists())
+            self.assertTrue((result_dir / "logs" / "agent.stdout.txt").exists())
+            self.assertTrue((result_dir / "logs" / "agent.stderr.txt").exists())
+            self.assertTrue((result_dir / "logs" / "eval.stdout.txt").exists())
+            self.assertTrue((result_dir / "logs" / "eval.stderr.txt").exists())
+
+            result = json.loads(
+                (result_dir / "result.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(result["score"], 1.0)
+            _assert_result_metadata(
+                self,
+                result,
+                task="smoke/py",
+                agent="opencode",
+                model="opencode/big-pickle",
+                agent_exit_code=0,
+                eval_exit_code=0,
+            )
+            self.assertIn("metrics", result)
+
+            agent_stdout = (result_dir / "logs" / "agent.stdout.txt").read_text(
+                encoding="utf-8"
+            )
+            agent_stderr = (result_dir / "logs" / "agent.stderr.txt").read_text(
+                encoding="utf-8"
+            )
+            self.assertTrue(agent_stdout.strip() or agent_stderr.strip())

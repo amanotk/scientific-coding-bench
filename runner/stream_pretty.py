@@ -728,6 +728,15 @@ def _format_agent_plain_stream_line(phase: str, line: str) -> tuple[bool, str | 
         return False, None
 
     low = stripped.lower()
+    if agent_name == "opencode":
+        if low.startswith("thinking:"):
+            msg = _clean_stream_text(stripped.split(":", 1)[1].strip())
+            return True, f"[{phase}] thinking: {msg}"
+        if low.startswith(("implementation complete", "completed:", "summary:")):
+            msg = stripped.split(":", 1)[1].strip() if ":" in stripped else stripped
+            msg = _clean_stream_text(msg)
+            return True, f"[{phase}] text: {msg}"
+
     if agent_name == "copilot":
         if low.startswith(("thinking", "analyzing", "planning")):
             msg = stripped.split(":", 1)[1].strip() if ":" in stripped else stripped

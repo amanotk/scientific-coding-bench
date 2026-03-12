@@ -163,7 +163,6 @@ Other agent local files (sample defaults):
 
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
-  - `OPENROUTER_API_KEY`
   - `GITHUB_TOKEN`
   - `AZURE_OPENAI_API_KEY`
   - `AZURE_OPENAI_ENDPOINT`
@@ -182,11 +181,24 @@ do not print secrets into logs).
 
 The eval harness writes `/work/result.json`.
 
-Minimum fields:
+Minimum eval-written fields:
 
 ```json
 { "status": "passed|failed", "score": 0.0 }
 ```
+
+The runner normalizes copied results to include stable top-level metadata:
+
+- `run_id`: runner-generated ID for the run directory
+- `started_at`: UTC timestamp when the run started
+- `task`: task reference like `demo/py`
+- `agent`: agent name for `bench.py run` (for example `opencode`)
+- `model`: resolved model for `bench.py run`
+
+When known, the runner also adds:
+
+- `agent_exit_code`: integer exit code, or a sentinel string like `timeout` or `setup_error`
+- `eval_exit_code`: integer exit code, or `timeout`
 
 Optional `metrics` may be added for timings, accuracy, etc.
 
@@ -199,6 +211,8 @@ The runner prints a compact terminal summary after evaluation:
 
 - `status`
 - `score`
+- run metadata (`run_id`, `started_at`, `task`, optional `agent`, optional `model`)
+- optional exit codes
 - optional `metrics`
 - `run_dir`
 

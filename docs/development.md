@@ -34,7 +34,9 @@ CI should run on both branches and PRs targeting them:
 
 Current policy for CI jobs:
 
-- Do not run real agent solve flows in CI.
+- Real OpenCode smoke tests are available, but CI should set
+  `SCIBENCH_SKIP_OPENCODE_SMOKE=1` unless the environment is intentionally
+  provisioned for live agent runs.
 - Keep checks credential-free and deterministic.
 
 Recommended required checks:

@@ -242,6 +242,27 @@ def _print_result_summary(task_ref: str, run_dir: Path, result: dict[str, Any]) 
     print(f"[{task_ref}] Result")
     print(f"- status: {status}")
     print(f"- score: {score}")
+    run_id = result.get("run_id")
+    if isinstance(run_id, str) and run_id.strip():
+        print(f"- run_id: {run_id}")
+    started_at = result.get("started_at")
+    if isinstance(started_at, str) and started_at.strip():
+        print(f"- started_at: {started_at}")
+    task = result.get("task")
+    if isinstance(task, str) and task.strip():
+        print(f"- task: {task}")
+    agent = result.get("agent")
+    if isinstance(agent, str) and agent.strip():
+        print(f"- agent: {agent}")
+    model = result.get("model")
+    if isinstance(model, str) and model.strip():
+        print(f"- model: {model}")
+    agent_exit_code = result.get("agent_exit_code")
+    if agent_exit_code is not None:
+        print(f"- agent_exit_code: {agent_exit_code}")
+    eval_exit_code = result.get("eval_exit_code")
+    if eval_exit_code is not None:
+        print(f"- eval_exit_code: {eval_exit_code}")
 
     metrics = result.get("metrics")
     if isinstance(metrics, dict) and metrics:
@@ -611,6 +632,13 @@ def _write_failure_result(
     *,
     error: str,
     message: str,
+    run_id: str,
+    started_at: str,
+    task_ref: str,
+    agent_name: str | None = None,
+    model: str | None = None,
+    agent_exit_code: int | str | None = None,
+    eval_exit_code: int | str | None = None,
     metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
@@ -618,13 +646,52 @@ def _write_failure_result(
         "score": 0.0,
         "error": error,
         "message": message,
+        "run_id": run_id,
+        "started_at": started_at,
+        "task": task_ref,
     }
+    if agent_name:
+        result["agent"] = agent_name
+    if model:
+        result["model"] = model
+    if agent_exit_code is not None:
+        result["agent_exit_code"] = agent_exit_code
+    if eval_exit_code is not None:
+        result["eval_exit_code"] = eval_exit_code
     if metrics:
         result["metrics"] = metrics
     (run_dir / "result.json").write_text(
         json.dumps(result, indent=2) + "\n", encoding="utf-8"
     )
     return result
+
+
+def _run_started_at() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _annotate_result_metadata(
+    result: dict[str, Any],
+    *,
+    run_id: str,
+    started_at: str,
+    task_ref: str,
+    agent_name: str | None = None,
+    model: str | None = None,
+    agent_exit_code: int | str | None = None,
+    eval_exit_code: int | str | None = None,
+) -> None:
+    result["run_id"] = run_id
+    result["started_at"] = started_at
+    result["task"] = task_ref
+    if agent_name:
+        result["agent"] = agent_name
+    if model:
+        result["model"] = model
+    if agent_exit_code is not None:
+        result["agent_exit_code"] = agent_exit_code
+    if eval_exit_code is not None:
+        result["eval_exit_code"] = eval_exit_code
 
 
 def _redacted_cmd(cmd: list[str]) -> list[str]:
@@ -1458,6 +1525,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         return 2
 
     run_id = args.run_id or _gen_run_id()
+    started_at = _run_started_at()
     try:
         run_dir, logs_dir = _prepare_eval_result_dir(
             task=task,
@@ -1513,6 +1581,10 @@ def cmd_eval(args: argparse.Namespace) -> int:
             run_dir,
             error="eval_timeout",
             message=f"Timed out after {timeout_sec}s during eval phase",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            eval_exit_code="timeout",
         )
         print(f"Timed out after {timeout_sec}s during eval phase", file=sys.stderr)
         _print_result_summary(f"{suite}/{task_id}", run_dir, result)
@@ -1532,6 +1604,13 @@ def cmd_eval(args: argparse.Namespace) -> int:
         shutil.copy2(result_path, run_dir / "result.json")
         try:
             result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            _annotate_result_metadata(
+                result,
+                run_id=run_id,
+                started_at=started_at,
+                task_ref=f"{suite}/{task_id}",
+                eval_exit_code=proc.returncode,
+            )
             _append_metric(result, "eval_inner_sec", eval_inner_sec)
             (run_dir / "result.json").write_text(
                 json.dumps(result, indent=2) + "\n", encoding="utf-8"
@@ -1544,6 +1623,16 @@ def cmd_eval(args: argparse.Namespace) -> int:
             print(f"{suite}/{task_id}: wrote result.json")
     else:
         print(f"{suite}/{task_id}: eval completed (no result.json found)")
+        result = _write_failure_result(
+            run_dir,
+            error="missing_result",
+            message="Eval completed but did not produce result.json",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            eval_exit_code=proc.returncode,
+        )
+        _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         final_rc = 1
 
     return final_rc
@@ -1643,6 +1732,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
     run_id = args.run_id or _gen_run_id()
+    started_at = _run_started_at()
     try:
         run_dir, workdir, logs_dir = _prepare_run_dir(
             task=task,
@@ -1782,7 +1872,19 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
     except (FileNotFoundError, ValueError) as e:
         (logs_dir / "agent.stderr.txt").write_text(str(e) + "\n", encoding="utf-8")
         (logs_dir / "agent.exit_code.txt").write_text("setup_error\n", encoding="utf-8")
+        result = _write_failure_result(
+            run_dir,
+            error="agent_setup",
+            message=str(e),
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            agent_name=agent_name,
+            model=model,
+            agent_exit_code="setup_error",
+        )
         print(f"Agent setup failed: {e}", file=sys.stderr)
+        _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         print(str(run_dir))
         return 1
     except subprocess.TimeoutExpired as e:
@@ -1811,6 +1913,12 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             run_dir,
             error="agent_timeout",
             message=f"Timed out after {timeout_sec}s during agent phase",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            agent_name=agent_name,
+            model=model,
+            agent_exit_code="timeout",
             metrics=metrics or None,
         )
         print(f"Timed out after {timeout_sec}s during agent phase", file=sys.stderr)
@@ -1834,10 +1942,26 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         ),
     )
     if op.returncode != 0:
+        metrics = dict(agent_usage_metrics)
+        if agent_inner_sec is not None:
+            metrics["agent_inner_sec"] = round(float(agent_inner_sec), 6)
+        result = _write_failure_result(
+            run_dir,
+            error="agent_failed",
+            message=f"Agent exited with code {op.returncode}",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            agent_name=agent_name,
+            model=model,
+            agent_exit_code=op.returncode,
+            metrics=metrics or None,
+        )
         print(f"agent failed with exit code {op.returncode}", file=sys.stderr)
         print(f"Logs: {logs_dir}", file=sys.stderr)
         if op.stderr.strip():
             print(op.stderr.strip(), file=sys.stderr)
+        _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         print(str(run_dir))
         return 1
 
@@ -1868,6 +1992,13 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             run_dir,
             error="eval_timeout",
             message=f"Timed out after {timeout_sec}s during eval phase",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            agent_name=agent_name,
+            model=model,
+            agent_exit_code=op.returncode,
+            eval_exit_code="timeout",
             metrics=metrics or None,
         )
         print(f"Timed out after {timeout_sec}s during eval phase", file=sys.stderr)
@@ -1887,6 +2018,16 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         shutil.copy2(result_path, run_dir / "result.json")
         try:
             result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            _annotate_result_metadata(
+                result,
+                run_id=run_id,
+                started_at=started_at,
+                task_ref=f"{suite}/{task_id}",
+                agent_name=agent_name,
+                model=model,
+                agent_exit_code=op.returncode,
+                eval_exit_code=proc.returncode,
+            )
             _append_metric(result, "agent_inner_sec", agent_inner_sec)
             _append_metric(result, "eval_inner_sec", eval_inner_sec)
             _merge_metrics(result, agent_usage_metrics)
@@ -1902,6 +2043,20 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             final_rc = 1
     else:
         print(f"{suite}/{task_id}: eval completed (no result.json found)")
+        result = _write_failure_result(
+            run_dir,
+            error="missing_result",
+            message="Eval completed but did not produce result.json",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            agent_name=agent_name,
+            model=model,
+            agent_exit_code=op.returncode,
+            eval_exit_code=proc.returncode,
+            metrics=agent_usage_metrics or None,
+        )
+        _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         final_rc = 1
 
     return final_rc
