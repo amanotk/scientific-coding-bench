@@ -62,18 +62,31 @@ jobs:
 
           owner="${{ github.repository_owner }}"
           owner="${owner,,}"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            image_tag="${{ github.base_ref }}"
-          else
-            image_tag="${{ github.ref_name }}"
-          fi
-          image="ghcr.io/${owner}/simbench:${image_tag}"
 
-          if docker pull "$image"; then
-            docker tag "$image" simbench:0.1
+          pull_and_tag() {
+            local tag="$1"
+            local image="ghcr.io/${owner}/simbench:${tag}"
+            if docker pull "$image"; then
+              docker tag "$image" simbench:0.1
+              return 0
+            fi
+            return 1
+          }
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if pull_and_tag "${{ github.event.pull_request.head.ref }}"; then
+              exit 0
+            fi
+            if pull_and_tag "develop"; then
+              exit 0
+            fi
           else
-            python3 scripts/build_image.py --tag simbench:0.1
+            if pull_and_tag "${{ github.ref_name }}"; then
+              exit 0
+            fi
           fi
+
+          python3 scripts/build_image.py --tag simbench:0.1
 
       - name: Install TOML fallback for Python <3.11
         if: matrix.python-version == '3.10'

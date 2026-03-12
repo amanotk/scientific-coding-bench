@@ -75,7 +75,8 @@ Runner smoke tests:
 
 - `python3 -m unittest -q tests.test_runner_bench.TestOpenCodeSmoke`
 - Set `SIMBENCH_SKIP_OPENCODE_SMOKE=1` to skip the live OpenCode smoke run.
-- CI pulls `ghcr.io/<owner>/simbench:<branch>` when available and falls back to a local build when the toolchain image changes.
+- CI runs the live OpenCode smoke by default.
+- CI pulls `ghcr.io/<owner>/simbench:<head-branch>` for PRs when available, falls back to `ghcr.io/<owner>/simbench:develop`, and otherwise builds locally.
 
 Eval only:
 

@@ -2374,11 +2374,6 @@ model = "opencode/big-pickle"
                 "Skipping OpenCode smoke test via SIMBENCH_SKIP_OPENCODE_SMOKE"
             )
 
-        opencode_path = shutil.which("opencode")
-        if not opencode_path:
-            self.skipTest(
-                "OpenCode binary not found on PATH; set SIMBENCH_SKIP_OPENCODE_SMOKE=1 to suppress this smoke test explicitly"
-            )
         if not shutil.which("docker"):
             self.skipTest(
                 "Docker binary not found on PATH; set SIMBENCH_SKIP_OPENCODE_SMOKE=1 to suppress this smoke test explicitly"
