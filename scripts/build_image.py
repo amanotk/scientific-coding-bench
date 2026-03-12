@@ -30,7 +30,7 @@ def _cmd_str(cmd: list[str]) -> str:
 
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(description="Build the benchmark Docker image")
-    p.add_argument("--tag", default="scibench:0.1", help="Docker image tag")
+    p.add_argument("--tag", default="simbench:0.1", help="Docker image tag")
     p.add_argument(
         "--no-cache", action="store_true", help="Pass --no-cache to docker build"
     )

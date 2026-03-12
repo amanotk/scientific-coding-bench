@@ -1,6 +1,6 @@
-# Scientific Coding Benchmark for LLM Models
+# Simulation Coding Benchmark for LLM Agents
 
-This repository provides a framework for scientific coding benchmarks targeting LLM-based agents.
+This repository provides a framework for simulation coding benchmarks targeting LLM agents.
 
 ## Requirements
 
@@ -39,10 +39,17 @@ Build image:
 python3 scripts/build_image.py
 ```
 
+Published toolchain image:
+
+```bash
+docker pull ghcr.io/<owner>/simbench:develop
+docker tag ghcr.io/<owner>/simbench:develop simbench:0.1
+```
+
 Direct Docker build (fallback):
 
 ```bash
-docker build -t scibench:0.1 -f docker/Dockerfile .
+docker build -t simbench:0.1 -f docker/Dockerfile .
 ```
 
 List and validate tasks:
@@ -55,24 +62,25 @@ python3 runner/bench.py check
 Run a task:
 
 ```bash
-python3 runner/bench.py run sample/opencode.toml demo/py --image scibench:0.1
+python3 runner/bench.py run sample/opencode.toml demo/py --image simbench:0.1
 ```
 
 Run the tiny OpenCode smoke task:
 
 ```bash
-python3 runner/bench.py run sample/opencode-smoke.toml smoke/py --image scibench:0.1
+python3 runner/bench.py run sample/opencode-smoke.toml smoke/py --image simbench:0.1
 ```
 
 Runner smoke tests:
 
 - `python3 -m unittest -q tests.test_runner_bench.TestOpenCodeSmoke`
-- Set `SCIBENCH_SKIP_OPENCODE_SMOKE=1` to skip the live OpenCode smoke run.
+- Set `SIMBENCH_SKIP_OPENCODE_SMOKE=1` to skip the live OpenCode smoke run.
+- CI pulls `ghcr.io/<owner>/simbench:<branch>` when available and falls back to a local build when the toolchain image changes.
 
 Eval only:
 
 ```bash
-python3 runner/bench.py eval demo/py --workdir /path/to/workdir --image scibench:0.1
+python3 runner/bench.py eval demo/py --workdir /path/to/workdir --image simbench:0.1
 ```
 
 ## Repository Layout

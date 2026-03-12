@@ -1161,7 +1161,7 @@ def _run_docker_eval(
     uid = os.getuid() if hasattr(os, "getuid") else 1000
     gid = os.getgid() if hasattr(os, "getgid") else 1000
 
-    container_name = f"scibench-eval-{secrets.token_hex(6)}"
+    container_name = f"simbench-eval-{secrets.token_hex(6)}"
     docker_cmd = [
         "docker",
         "run",
@@ -1268,7 +1268,7 @@ def _run_agent_in_docker(
     uid = os.getuid() if hasattr(os, "getuid") else 1000
     gid = os.getgid() if hasattr(os, "getgid") else 1000
 
-    container_name = f"scibench-agent-{agent_name}-{secrets.token_hex(6)}"
+    container_name = f"simbench-agent-{agent_name}-{secrets.token_hex(6)}"
     docker_cmd: list[str] = [
         "docker",
         "run",
@@ -2087,7 +2087,7 @@ def main(argv: list[str]) -> int:
     p_run = sub.add_parser("run", help="Run agent solve + eval")
     p_run.add_argument("agents", help="Path to single-agent TOML config")
     p_run.add_argument("task", help="Task in the form <suite>/<task_id>")
-    p_run.add_argument("--image", default="scibench:0.1", help="Docker image tag")
+    p_run.add_argument("--image", default="simbench:0.1", help="Docker image tag")
     p_run.add_argument("--timeout-sec", type=int, default=600)
     p_run.add_argument("--run-id", default="")
     p_run.add_argument("--result-dir", default="")
@@ -2096,7 +2096,7 @@ def main(argv: list[str]) -> int:
     p_eval = sub.add_parser("eval", help="Run eval-only on an existing workdir")
     p_eval.add_argument("task", help="Task in the form <suite>/<task_id>")
     p_eval.add_argument("--workdir", required=True)
-    p_eval.add_argument("--image", default="scibench:0.1", help="Docker image tag")
+    p_eval.add_argument("--image", default="simbench:0.1", help="Docker image tag")
     p_eval.add_argument("--timeout-sec", type=int, default=600)
     p_eval.add_argument("--run-id", default="")
     p_eval.add_argument("--result-dir", default="")
@@ -2114,7 +2114,7 @@ def main(argv: list[str]) -> int:
     )
     p_shell.add_argument("agents", help="Path to single-agent TOML config")
     p_shell.add_argument("task", help="Task in the form <suite>/<task_id>")
-    p_shell.add_argument("--image", default="scibench:0.1", help="Docker image tag")
+    p_shell.add_argument("--image", default="simbench:0.1", help="Docker image tag")
     p_shell.add_argument("--run-id", default="")
     p_shell.add_argument("--result-dir", default="")
     p_shell.add_argument(

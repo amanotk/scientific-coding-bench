@@ -14,7 +14,7 @@ from unittest import mock
 def _load_bench_module():
     repo_root = Path(__file__).resolve().parents[1]
     bench_py = repo_root / "runner" / "bench.py"
-    spec = importlib.util.spec_from_file_location("scibench_runner_bench", bench_py)
+    spec = importlib.util.spec_from_file_location("simbench_runner_bench", bench_py)
     assert spec is not None
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -57,8 +57,8 @@ def _assert_result_metadata(
 
 class TestBenchHelpers(unittest.TestCase):
     def test_expand_path(self):
-        with mock.patch.dict(os.environ, {"SCIBENCH_X": "abc"}, clear=False):
-            self.assertEqual(bench._expand_path("$SCIBENCH_X"), "abc")
+        with mock.patch.dict(os.environ, {"SIMBENCH_X": "abc"}, clear=False):
+            self.assertEqual(bench._expand_path("$SIMBENCH_X"), "abc")
 
     def test_load_agent_config_missing(self):
         with tempfile.TemporaryDirectory() as td:
@@ -222,7 +222,7 @@ class TestBenchHelpers(unittest.TestCase):
                 bench, "_run_capture_stream", side_effect=fake_run_capture_stream
             ):
                 bench._run_agent_in_docker(
-                    image="scibench:0.1",
+                    image="simbench:0.1",
                     workdir=workdir,
                     run_dir=run_dir,
                     agent_name="dummy",
@@ -246,7 +246,7 @@ class TestBenchHelpers(unittest.TestCase):
                     bench, "_run_capture_stream", side_effect=fake_run_capture_stream
                 ):
                     bench._run_agent_in_docker(
-                        image="scibench:0.1",
+                        image="simbench:0.1",
                         workdir=workdir,
                         run_dir=run_dir,
                         agent_name="dummy",
@@ -281,7 +281,7 @@ class TestBenchHelpers(unittest.TestCase):
                 bench, "_run_capture_stream", side_effect=fake_run_capture_stream
             ):
                 bench._run_agent_in_docker(
-                    image="scibench:0.1",
+                    image="simbench:0.1",
                     workdir=workdir,
                     run_dir=run_dir,
                     agent_name="dummy",
@@ -343,7 +343,7 @@ class TestBenchHelpers(unittest.TestCase):
 
             with mock.patch.object(bench.subprocess, "call", side_effect=fake_call):
                 bench._run_docker_shell(
-                    image="scibench:0.1",
+                    image="simbench:0.1",
                     workdir=workdir,
                     cmd=["python3", "-V"],
                 )
@@ -351,7 +351,7 @@ class TestBenchHelpers(unittest.TestCase):
 
             with mock.patch.object(bench.subprocess, "call", side_effect=fake_call):
                 bench._run_docker_shell(
-                    image="scibench:0.1",
+                    image="simbench:0.1",
                     workdir=workdir,
                     cmd=["bash"],
                 )
@@ -797,7 +797,7 @@ use_shared_workspace = true
                 bench, "_run_capture_stream", side_effect=fake_run_capture_stream
             ):
                 bench._run_docker_eval(
-                    image="scibench:0.1",
+                    image="simbench:0.1",
                     workdir=workdir,
                     eval_dir=eval_dir,
                     eval_cmd="/eval/run.sh",
@@ -897,7 +897,7 @@ cmd = "true"
                                 str(agents_toml),
                                 "s/t",
                                 "--image",
-                                "scibench:0.1",
+                                "simbench:0.1",
                             ]
                         )
 
@@ -1011,7 +1011,7 @@ name = "opencode"
                             str(agents_toml),
                             "s/t",
                             "--image",
-                            "scibench:0.1",
+                            "simbench:0.1",
                         ]
                     )
 
@@ -1101,7 +1101,7 @@ name = "opencode"
                             str(agents_toml),
                             "s/t",
                             "--image",
-                            "scibench:0.1",
+                            "simbench:0.1",
                         ]
                     )
 
@@ -1197,7 +1197,7 @@ name = "opencode"
                             str(agents_toml),
                             "s/t",
                             "--image",
-                            "scibench:0.1",
+                            "simbench:0.1",
                         ]
                     )
 
@@ -1306,7 +1306,7 @@ name = "codex"
                         str(agents_toml),
                         "s/t",
                         "--image",
-                        "scibench:0.1",
+                        "simbench:0.1",
                     ]
                 )
 
@@ -1398,7 +1398,7 @@ container = "/usr/local/bin/true"
                 err = StringIO()
                 with redirect_stdout(out), redirect_stderr(err):
                     rc = bench.main(
-                        ["run", str(agents_toml), "s/t", "--image", "scibench:0.1"]
+                        ["run", str(agents_toml), "s/t", "--image", "simbench:0.1"]
                     )
 
             self.assertEqual(rc, 1)
@@ -1475,7 +1475,7 @@ container = "/usr/local/bin/true"
                 err = StringIO()
                 with redirect_stdout(out), redirect_stderr(err):
                     rc = bench.main(
-                        ["run", str(agents_toml), "s/t", "--image", "scibench:0.1"]
+                        ["run", str(agents_toml), "s/t", "--image", "simbench:0.1"]
                     )
 
             self.assertEqual(rc, 1)
@@ -1558,7 +1558,7 @@ container = "/usr/local/bin/true"
                 err = StringIO()
                 with redirect_stdout(out), redirect_stderr(err):
                     rc = bench.main(
-                        ["run", str(agents_toml), "s/t", "--image", "scibench:0.1"]
+                        ["run", str(agents_toml), "s/t", "--image", "simbench:0.1"]
                     )
 
             self.assertEqual(rc, 1)
@@ -1664,7 +1664,7 @@ model = "gpt-5-mini"
                         str(agents_toml),
                         "s/t",
                         "--image",
-                        "scibench:0.1",
+                        "simbench:0.1",
                     ]
                 )
 
@@ -1785,7 +1785,7 @@ name = "opencode"
                         str(agents_toml),
                         "s/t",
                         "--image",
-                        "scibench:0.1",
+                        "simbench:0.1",
                     ]
                 )
 
@@ -1906,7 +1906,7 @@ name = "opencode"
                         str(agents_toml),
                         "s/t",
                         "--image",
-                        "scibench:0.1",
+                        "simbench:0.1",
                     ]
                 )
 
@@ -1960,7 +1960,7 @@ eval_cmd = "/eval/run.sh"
                             "--workdir",
                             str(workdir),
                             "--image",
-                            "scibench:0.1",
+                            "simbench:0.1",
                         ]
                     )
 
@@ -2017,7 +2017,7 @@ eval_cmd = "/eval/run.sh"
                             "--workdir",
                             str(workdir),
                             "--image",
-                            "scibench:0.1",
+                            "simbench:0.1",
                         ]
                     )
 
@@ -2170,7 +2170,7 @@ class TestAgentBinaries(unittest.TestCase):
         found = shutil.which(name)
         if found:
             return found
-        if os.environ.get("SCIBENCH_REQUIRE_AGENT_BINS") == "1":
+        if os.environ.get("SIMBENCH_REQUIRE_AGENT_BINS") == "1":
             self.fail(f"Required binary missing on PATH: {name}")
         self.skipTest(f"Binary not on PATH: {name}")
 
@@ -2318,7 +2318,7 @@ model = "opencode/big-pickle"
                             str(agents_toml),
                             "smoke/py",
                             "--image",
-                            "scibench:0.1",
+                            "simbench:0.1",
                         ]
                     )
 
@@ -2369,19 +2369,19 @@ model = "opencode/big-pickle"
             self.assertIn("[agent:opencode] stderr: → Read /run/spec.md", stderr_text)
 
     def test_real_opencode_smoke_task(self):
-        if os.environ.get("SCIBENCH_SKIP_OPENCODE_SMOKE") == "1":
+        if os.environ.get("SIMBENCH_SKIP_OPENCODE_SMOKE") == "1":
             self.skipTest(
-                "Skipping OpenCode smoke test via SCIBENCH_SKIP_OPENCODE_SMOKE"
+                "Skipping OpenCode smoke test via SIMBENCH_SKIP_OPENCODE_SMOKE"
             )
 
         opencode_path = shutil.which("opencode")
         if not opencode_path:
             self.skipTest(
-                "OpenCode binary not found on PATH; set SCIBENCH_SKIP_OPENCODE_SMOKE=1 to suppress this smoke test explicitly"
+                "OpenCode binary not found on PATH; set SIMBENCH_SKIP_OPENCODE_SMOKE=1 to suppress this smoke test explicitly"
             )
         if not shutil.which("docker"):
             self.skipTest(
-                "Docker binary not found on PATH; set SCIBENCH_SKIP_OPENCODE_SMOKE=1 to suppress this smoke test explicitly"
+                "Docker binary not found on PATH; set SIMBENCH_SKIP_OPENCODE_SMOKE=1 to suppress this smoke test explicitly"
             )
 
         repo_root = Path(__file__).resolve().parents[1]
@@ -2397,7 +2397,7 @@ model = "opencode/big-pickle"
                         str(sample_cfg),
                         "smoke/py",
                         "--image",
-                        "scibench:0.1",
+                        "simbench:0.1",
                         "--result-dir",
                         str(result_dir),
                     ]

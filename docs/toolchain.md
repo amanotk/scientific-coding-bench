@@ -1,7 +1,8 @@
 # Toolchain Reference
 
 This document describes what is available by default in the benchmark Docker
-image (`scibench:0.1`).
+image (`simbench:0.1`). A published copy is also available from GHCR as
+`ghcr.io/<owner>/simbench:<branch>`.
 
 Build the image with:
 

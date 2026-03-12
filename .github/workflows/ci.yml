@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   test-and-check:
     name: Tests (py${{ matrix.python-version }})
@@ -18,6 +22,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -26,6 +32,48 @@ jobs:
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v4
+
+      - name: Detect toolchain image changes
+        id: toolchain_changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            toolchain:
+              - docker/Dockerfile
+              - scripts/build_image.py
+              - .github/workflows/toolchain-image.yml
+
+      - name: Log in to GHCR
+        if: steps.toolchain_changes.outputs.toolchain != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare SimBench image
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.toolchain_changes.outputs.toolchain }}" = "true" ]; then
+            python3 scripts/build_image.py --tag simbench:0.1
+            exit 0
+          fi
+
+          owner="${{ github.repository_owner }}"
+          owner="${owner,,}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            image_tag="${{ github.base_ref }}"
+          else
+            image_tag="${{ github.ref_name }}"
+          fi
+          image="ghcr.io/${owner}/simbench:${image_tag}"
+
+          if docker pull "$image"; then
+            docker tag "$image" simbench:0.1
+          else
+            python3 scripts/build_image.py --tag simbench:0.1
+          fi
 
       - name: Install TOML fallback for Python <3.11
         if: matrix.python-version == '3.10'

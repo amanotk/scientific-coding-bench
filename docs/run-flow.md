@@ -57,7 +57,7 @@ container.
 Command:
 
 ```bash
-python3 runner/bench.py run sample/opencode.toml <suite>/<task_id> --image scibench:0.1
+python3 runner/bench.py run sample/opencode.toml <suite>/<task_id> --image simbench:0.1
 ```
 
 What happens:
@@ -98,7 +98,7 @@ Agents can run in two modes:
 Command:
 
 ```bash
-python3 runner/bench.py eval <suite>/<task_id> --workdir /path/to/workdir --image scibench:0.1
+python3 runner/bench.py eval <suite>/<task_id> --workdir /path/to/workdir --image simbench:0.1
 ```
 
 What happens:

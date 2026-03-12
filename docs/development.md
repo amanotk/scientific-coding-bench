@@ -35,7 +35,7 @@ CI should run on both branches and PRs targeting them:
 Current policy for CI jobs:
 
 - Real OpenCode smoke tests are available, but CI should set
-  `SCIBENCH_SKIP_OPENCODE_SMOKE=1` unless the environment is intentionally
+  `SIMBENCH_SKIP_OPENCODE_SMOKE=1` unless the environment is intentionally
   provisioned for live agent runs.
 - Keep checks credential-free and deterministic.
 
@@ -48,8 +48,16 @@ Recommended required checks:
 
 Optional heavier check:
 
-- `docker build -t scibench:0.1 -f docker/Dockerfile .`
+- `docker build -t simbench:0.1 -f docker/Dockerfile .`
 - `python3 scripts/build_image.py`
+
+Toolchain image publishing:
+
+- GitHub Actions publishes `ghcr.io/<owner>/simbench:<branch>` on pushes to
+  `develop` and `main`.
+- CI pulls the published image for runner tests when the toolchain is unchanged.
+- If `docker/Dockerfile` or `scripts/build_image.py` changes in a branch, CI
+  rebuilds `simbench:0.1` locally instead of pulling a stale registry image.
 
 ## Local Developer Workflow
 

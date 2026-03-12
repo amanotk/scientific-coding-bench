@@ -1,0 +1,64 @@
+name: Toolchain Image
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - docker/Dockerfile
+      - scripts/build_image.py
+      - .github/workflows/toolchain-image.yml
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    name: Build and push SimBench image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/simbench
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            FLAP_VERSION=1.2.16
+            CATCH2_REF=v3.13.0
+            MDSPAN_REF=mdspan-0.6.0
+            XTL_REF=0.8.2
+            XSIMD_REF=14.0.0
+            XTENSOR_REF=0.27.1
+            TOML11_REF=v4.4.0
+            FORTRAN_STDLIB_REF=v0.6.1
+            TOML_F_REF=v0.4.2
+            FACE_REV=1455c549ae0c1ead96961ca61a73131d8176b6a4
+            PENF_REV=a519e6cb58873efa85a81b4cf0a547870f510629
+            FLAP_INSTALL_SHA256=c99e294dda30fc9c69d9ec796c954a05b79cc1874110f10178432f217aee3663
