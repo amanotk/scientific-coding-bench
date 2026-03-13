@@ -57,7 +57,7 @@ container.
 Command:
 
 ```bash
-python3 runner/bench.py run sample/opencode.toml <suite>/<task_id> --image scibench:0.1
+python3 runner/bench.py run sample/opencode.toml <suite>/<task_id> --image simbench:0.1
 ```
 
 What happens:
@@ -98,7 +98,7 @@ Agents can run in two modes:
 Command:
 
 ```bash
-python3 runner/bench.py eval <suite>/<task_id> --workdir /path/to/workdir --image scibench:0.1
+python3 runner/bench.py eval <suite>/<task_id> --workdir /path/to/workdir --image simbench:0.1
 ```
 
 What happens:
@@ -108,13 +108,14 @@ What happens:
 - Results and logs are still written to a fresh run directory.
 
 
-## Network Modes
+## Networking
 
-`--network on|off` controls the Docker network mode for both the agent and eval
-containers:
+Docker runs always use normal network access for both the agent and eval
+containers.
 
-- `on`: default Docker networking
-- `off`: `docker run --network none`
+If you want to limit model-side web search or similar features, do that through
+the selected agent's `model_options` or provider-specific settings rather than a
+runner-level Docker network flag.
 
 
 ## Secrets / Credentials
@@ -162,7 +163,6 @@ Other agent local files (sample defaults):
 
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
-  - `OPENROUTER_API_KEY`
   - `GITHUB_TOKEN`
   - `AZURE_OPENAI_API_KEY`
   - `AZURE_OPENAI_ENDPOINT`
@@ -172,20 +172,33 @@ The forwarded keys are printed to stderr and recorded in:
 
 - `runs/.../logs/agent.forwarded_env.txt`
 
-With network enabled, assume anything readable in the container can be exfiltrated.
-The runner keeps `runs/` free of credentials by design (do not write secrets into
-`workdir/` and do not print secrets into logs).
+Assume anything readable in the container can be exfiltrated. The runner keeps
+`runs/` free of credentials by design (do not write secrets into `workdir/` and
+do not print secrets into logs).
 
 
 ## Result Format (v0)
 
 The eval harness writes `/work/result.json`.
 
-Minimum fields:
+Minimum eval-written fields:
 
 ```json
 { "status": "passed|failed", "score": 0.0 }
 ```
+
+The runner normalizes copied results to include stable top-level metadata:
+
+- `run_id`: runner-generated ID for the run directory
+- `started_at`: UTC timestamp when the run started
+- `task`: task reference like `demo/py`
+- `agent`: agent name for `bench.py run` (for example `opencode`)
+- `model`: resolved model for `bench.py run`
+
+When known, the runner also adds:
+
+- `agent_exit_code`: integer exit code, or a sentinel string like `timeout` or `setup_error`
+- `eval_exit_code`: integer exit code, or `timeout`
 
 Optional `metrics` may be added for timings, accuracy, etc.
 
@@ -198,6 +211,8 @@ The runner prints a compact terminal summary after evaluation:
 
 - `status`
 - `score`
+- run metadata (`run_id`, `started_at`, `task`, optional `agent`, optional `model`)
+- optional exit codes
 - optional `metrics`
 - `run_dir`
 

@@ -242,12 +242,33 @@ def _print_result_summary(task_ref: str, run_dir: Path, result: dict[str, Any]) 
     print(f"[{task_ref}] Result")
     print(f"- status: {status}")
     print(f"- score: {score}")
+    run_id = result.get("run_id")
+    if isinstance(run_id, str) and run_id.strip():
+        print(f"- run_id: {run_id}")
+    started_at = result.get("started_at")
+    if isinstance(started_at, str) and started_at.strip():
+        print(f"- started_at: {started_at}")
+    task = result.get("task")
+    if isinstance(task, str) and task.strip():
+        print(f"- task: {task}")
+    agent = result.get("agent")
+    if isinstance(agent, str) and agent.strip():
+        print(f"- agent: {agent}")
+    model = result.get("model")
+    if isinstance(model, str) and model.strip():
+        print(f"- model: {model}")
+    agent_exit_code = result.get("agent_exit_code")
+    if agent_exit_code is not None:
+        print(f"- agent_exit_code: {agent_exit_code}")
+    eval_exit_code = result.get("eval_exit_code")
+    if eval_exit_code is not None:
+        print(f"- eval_exit_code: {eval_exit_code}")
 
     metrics = result.get("metrics")
     if isinstance(metrics, dict) and metrics:
         print("- metrics:")
         for key in sorted(metrics.keys()):
-            print(f"  {key}: {metrics[key]}")
+            print(f"  {key}: {_format_summary_metric(key, metrics[key])}")
 
     print(f"- run_dir: {run_dir}")
 
@@ -280,6 +301,16 @@ def _print_result_summary(task_ref: str, run_dir: Path, result: dict[str, Any]) 
                             val, ensure_ascii=True, separators=(",", ":")
                         )
                     print(f"  {key}: {rendered}")
+
+
+def _format_kilotokens(value: int | float) -> str:
+    return f"{float(value) / 1000.0:.1f}k"
+
+
+def _format_summary_metric(key: str, value: Any) -> Any:
+    if isinstance(value, (int, float)) and "token" in key:
+        return _format_kilotokens(value)
+    return value
 
 
 _INNER_SEC_RE = re.compile(r"^__BENCH_INNER_SEC__=([0-9]+(?:\.[0-9]+)?)$", re.MULTILINE)
@@ -344,6 +375,323 @@ def _append_metric(result: dict[str, Any], key: str, value: float | None) -> Non
         metrics = {}
     metrics[key] = round(float(value), 6)
     result["metrics"] = metrics
+
+
+def _set_metric_value(result: dict[str, Any], key: str, value: Any) -> None:
+    metrics = result.get("metrics")
+    if not isinstance(metrics, dict):
+        metrics = {}
+    metrics[key] = value
+    result["metrics"] = metrics
+
+
+def _json_line_objects(text: str) -> list[dict[str, Any]]:
+    objs: list[dict[str, Any]] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            objs.append(obj)
+    return objs
+
+
+def _usage_metrics_from_usage_dict(usage: dict[str, Any]) -> dict[str, Any]:
+    metrics: dict[str, Any] = {}
+
+    if isinstance(usage.get("input_tokens"), int):
+        metrics["agent_input_tokens"] = usage["input_tokens"]
+    if isinstance(usage.get("output_tokens"), int):
+        metrics["agent_output_tokens"] = usage["output_tokens"]
+
+    cached = usage.get("cached_input_tokens")
+    if not isinstance(cached, int):
+        cached = usage.get("cache_read_input_tokens")
+    if isinstance(cached, int):
+        metrics["agent_cached_input_tokens"] = cached
+
+    cache_create = usage.get("cache_creation_input_tokens")
+    if isinstance(cache_create, int):
+        metrics["agent_cache_creation_input_tokens"] = cache_create
+
+    return metrics
+
+
+_COPILOT_MODEL_BREAKDOWN_RE = re.compile(
+    r"^\s*(?P<model>\S+)\s+"
+    r"(?P<input>[0-9][0-9.,]*[kKmM]?)\s+in,\s+"
+    r"(?P<output>[0-9][0-9.,]*[kKmM]?)\s+out,\s+"
+    r"(?P<cached>[0-9][0-9.,]*[kKmM]?)\s+cached",
+    re.MULTILINE,
+)
+
+
+def _parse_human_token_count(raw: str) -> int | None:
+    s = raw.strip().lower().replace(",", "")
+    mult = 1
+    if s.endswith("k"):
+        mult = 1000
+        s = s[:-1]
+    elif s.endswith("m"):
+        mult = 1000000
+        s = s[:-1]
+    try:
+        return int(round(float(s) * mult))
+    except ValueError:
+        return None
+
+
+def _extract_copilot_usage_metrics(stderr: str) -> dict[str, Any]:
+    metrics: dict[str, Any] = {}
+    matches = list(_COPILOT_MODEL_BREAKDOWN_RE.finditer(stderr))
+    if not matches:
+        return metrics
+
+    total_in = 0
+    total_out = 0
+    total_cached = 0
+    model_names: list[str] = []
+    for match in matches:
+        model = match.group("model")
+        input_tokens = _parse_human_token_count(match.group("input"))
+        output_tokens = _parse_human_token_count(match.group("output"))
+        cached_tokens = _parse_human_token_count(match.group("cached"))
+        if input_tokens is None or output_tokens is None or cached_tokens is None:
+            continue
+        model_names.append(model)
+        total_in += input_tokens
+        total_out += output_tokens
+        total_cached += cached_tokens
+
+    if not model_names:
+        return {}
+
+    metrics["agent_input_tokens"] = total_in
+    metrics["agent_output_tokens"] = total_out
+    metrics["agent_cached_input_tokens"] = total_cached
+    if len(model_names) == 1:
+        metrics["agent_usage_model"] = model_names[0]
+    else:
+        metrics["agent_usage_model"] = ",".join(model_names)
+    return metrics
+
+
+_OPENCODE_STATS_VALUE_RE = re.compile(
+    r"^[^0-9$]*\$?([0-9][0-9,]*(?:\.[0-9]+)?(?:[kKmM])?)"
+)
+
+
+def _extract_boxed_stat_value(text: str, label: str) -> str | None:
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        line = line.strip("│").strip()
+        if not line.startswith(label):
+            continue
+        rest = line[len(label) :].strip()
+        match = _OPENCODE_STATS_VALUE_RE.match(rest)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _extract_opencode_stats_metrics(stdout: str) -> dict[str, Any]:
+    metrics: dict[str, Any] = {}
+    input_raw = _extract_boxed_stat_value(stdout, "Input")
+    output_raw = _extract_boxed_stat_value(stdout, "Output")
+    cache_read_raw = _extract_boxed_stat_value(stdout, "Cache Read")
+    cache_write_raw = _extract_boxed_stat_value(stdout, "Cache Write")
+
+    if input_raw is not None:
+        parsed = _parse_human_token_count(input_raw)
+        if parsed is not None:
+            metrics["agent_input_tokens"] = parsed
+    if output_raw is not None:
+        parsed = _parse_human_token_count(output_raw)
+        if parsed is not None:
+            metrics["agent_output_tokens"] = parsed
+    if cache_read_raw is not None:
+        parsed = _parse_human_token_count(cache_read_raw)
+        if parsed is not None:
+            metrics["agent_cached_input_tokens"] = parsed
+    if cache_write_raw is not None:
+        parsed = _parse_human_token_count(cache_write_raw)
+        if parsed is not None:
+            metrics["agent_cache_creation_input_tokens"] = parsed
+    return metrics
+
+
+def _opencode_state_dir(run_dir: Path) -> Path:
+    return run_dir / ".opencode-data"
+
+
+def _collect_opencode_usage_metrics(*, state_dir: Path) -> dict[str, Any]:
+    env = dict(os.environ)
+    env["XDG_DATA_HOME"] = str(state_dir)
+    cmd = ["opencode", "stats", "--models", "1"]
+    try:
+        proc = subprocess.run(
+            cmd,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env=env,
+        )
+    except FileNotFoundError:
+        return {}
+    if proc.returncode != 0:
+        return {}
+    return _extract_opencode_stats_metrics(proc.stdout)
+
+
+def _extract_agent_usage_metrics(
+    agent_name: str, stdout: str, stderr: str = ""
+) -> dict[str, Any]:
+    if agent_name == "copilot":
+        return _extract_copilot_usage_metrics(stderr)
+
+    if agent_name not in {"opencode", "claude", "codex"}:
+        return {}
+
+    objects = _json_line_objects(stdout)
+    if not objects:
+        return {}
+
+    usage_obj: dict[str, Any] | None = None
+    extra_metrics: dict[str, Any] = {}
+
+    if agent_name in {"opencode", "claude"}:
+        for obj in objects:
+            if obj.get("type") != "result":
+                continue
+            usage = obj.get("usage")
+            if isinstance(usage, dict):
+                usage_obj = usage
+        if usage_obj is None:
+            for obj in objects:
+                usage = obj.get("usage")
+                if isinstance(usage, dict):
+                    usage_obj = usage
+    elif agent_name == "codex":
+        for obj in objects:
+            if obj.get("type") != "turn.completed":
+                continue
+            usage = obj.get("usage")
+            if isinstance(usage, dict):
+                usage_obj = usage
+
+    if usage_obj is None:
+        return {}
+
+    metrics = _usage_metrics_from_usage_dict(usage_obj)
+    metrics.update(extra_metrics)
+    return metrics
+
+
+def _merge_metrics(result: dict[str, Any], metrics: dict[str, Any]) -> None:
+    for key, value in metrics.items():
+        _set_metric_value(result, key, value)
+
+
+def _merge_metric_dicts(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    merged.update(extra)
+    return merged
+
+
+def _fill_missing_metric_dicts(
+    base: dict[str, Any], fallback: dict[str, Any]
+) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in fallback.items():
+        merged.setdefault(key, value)
+    return merged
+
+
+def _collect_postrun_agent_usage_metrics(
+    *,
+    agent_name: str,
+    run_dir: Path,
+    mode: str,
+    workdir: Path,
+) -> dict[str, Any]:
+    if agent_name != "opencode":
+        return {}
+    return _collect_opencode_usage_metrics(state_dir=_opencode_state_dir(run_dir))
+
+
+def _write_failure_result(
+    run_dir: Path,
+    *,
+    error: str,
+    message: str,
+    run_id: str,
+    started_at: str,
+    task_ref: str,
+    agent_name: str | None = None,
+    model: str | None = None,
+    agent_exit_code: int | str | None = None,
+    eval_exit_code: int | str | None = None,
+    metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "status": "failed",
+        "score": 0.0,
+        "error": error,
+        "message": message,
+        "run_id": run_id,
+        "started_at": started_at,
+        "task": task_ref,
+    }
+    if agent_name:
+        result["agent"] = agent_name
+    if model:
+        result["model"] = model
+    if agent_exit_code is not None:
+        result["agent_exit_code"] = agent_exit_code
+    if eval_exit_code is not None:
+        result["eval_exit_code"] = eval_exit_code
+    if metrics:
+        result["metrics"] = metrics
+    (run_dir / "result.json").write_text(
+        json.dumps(result, indent=2) + "\n", encoding="utf-8"
+    )
+    return result
+
+
+def _run_started_at() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _annotate_result_metadata(
+    result: dict[str, Any],
+    *,
+    run_id: str,
+    started_at: str,
+    task_ref: str,
+    agent_name: str | None = None,
+    model: str | None = None,
+    agent_exit_code: int | str | None = None,
+    eval_exit_code: int | str | None = None,
+) -> None:
+    result["run_id"] = run_id
+    result["started_at"] = started_at
+    result["task"] = task_ref
+    if agent_name:
+        result["agent"] = agent_name
+    if model:
+        result["model"] = model
+    if agent_exit_code is not None:
+        result["agent_exit_code"] = agent_exit_code
+    if eval_exit_code is not None:
+        result["eval_exit_code"] = eval_exit_code
 
 
 def _redacted_cmd(cmd: list[str]) -> list[str]:
@@ -805,7 +1153,6 @@ def _run_docker_eval(
     eval_dir: Path,
     eval_cmd: str,
     shared_eval_dir: Path | None,
-    network: str,
     timeout_sec: int,
     extra_env: dict[str, str] | None = None,
     verbose: bool = False,
@@ -814,7 +1161,7 @@ def _run_docker_eval(
     uid = os.getuid() if hasattr(os, "getuid") else 1000
     gid = os.getgid() if hasattr(os, "getgid") else 1000
 
-    container_name = f"scibench-eval-{secrets.token_hex(6)}"
+    container_name = f"simbench-eval-{secrets.token_hex(6)}"
     docker_cmd = [
         "docker",
         "run",
@@ -844,13 +1191,6 @@ def _run_docker_eval(
     ]
     if shared_eval_dir is not None:
         docker_cmd += ["-v", f"{str(shared_eval_dir)}:/eval_shared:ro"]
-    if network == "off":
-        docker_cmd += ["--network", "none"]
-    elif network == "on":
-        pass
-    else:
-        raise ValueError("network must be 'on' or 'off'")
-
     if extra_env:
         for k, v in extra_env.items():
             docker_cmd += ["-e", f"{k}={v}"]
@@ -878,9 +1218,7 @@ def _run_docker_eval(
     return proc, _extract_inner_sec(proc.stdout, proc.stderr)
 
 
-def _run_docker_shell(
-    *, image: str, workdir: Path, network: str, cmd: list[str]
-) -> int:
+def _run_docker_shell(*, image: str, workdir: Path, cmd: list[str]) -> int:
     uid = os.getuid() if hasattr(os, "getuid") else 1000
     gid = os.getgid() if hasattr(os, "getgid") else 1000
 
@@ -907,13 +1245,6 @@ def _run_docker_shell(
         "-w",
         "/work",
     ]
-    if network == "off":
-        docker_cmd += ["--network", "none"]
-    elif network == "on":
-        pass
-    else:
-        raise ValueError("network must be 'on' or 'off'")
-
     if cmd == ["bash"]:
         docker_cmd += ["-it"]
 
@@ -929,7 +1260,6 @@ def _run_agent_in_docker(
     agent_name: str,
     agent_cfg: dict[str, Any],
     model: str,
-    network: str,
     timeout_sec: int,
     extra_env: dict[str, str] | None = None,
     verbose: bool = False,
@@ -938,7 +1268,7 @@ def _run_agent_in_docker(
     uid = os.getuid() if hasattr(os, "getuid") else 1000
     gid = os.getgid() if hasattr(os, "getgid") else 1000
 
-    container_name = f"scibench-agent-{agent_name}-{secrets.token_hex(6)}"
+    container_name = f"simbench-agent-{agent_name}-{secrets.token_hex(6)}"
     docker_cmd: list[str] = [
         "docker",
         "run",
@@ -978,6 +1308,15 @@ def _run_agent_in_docker(
         "-w",
         "/work",
     ]
+    if agent_name == "opencode":
+        opencode_state_dir = _opencode_state_dir(run_dir)
+        opencode_state_dir.mkdir(parents=True, exist_ok=True)
+        docker_cmd += [
+            "-e",
+            "XDG_DATA_HOME=/opencode-data",
+            "-v",
+            f"{str(opencode_state_dir)}:/opencode-data:rw",
+        ]
     model_options = _normalize_model_options(agent_name, agent_cfg)
     for k, v in _model_options_env(model_options).items():
         docker_cmd += ["-e", f"{k}={v}"]
@@ -1026,13 +1365,6 @@ def _run_agent_in_docker(
             raise ValueError(f"Agent {agent_name!r} env must be an object")
         for k, v in env_kv.items():
             docker_cmd += ["-e", f"{k}={v}"]
-
-    if network == "off":
-        docker_cmd += ["--network", "none"]
-    elif network == "on":
-        pass
-    else:
-        raise ValueError("network must be 'on' or 'off'")
 
     if extra_env:
         for k, v in extra_env.items():
@@ -1111,6 +1443,10 @@ def _run_agent_on_host(
             "BENCH_SPEC_FILE": str(run_dir / "spec.md"),
         }
     )
+    if agent_name == "opencode":
+        opencode_state_dir = _opencode_state_dir(run_dir)
+        opencode_state_dir.mkdir(parents=True, exist_ok=True)
+        env["XDG_DATA_HOME"] = str(opencode_state_dir)
     model_options = _normalize_model_options(agent_name, agent_cfg)
     env.update(_model_options_env(model_options))
 
@@ -1189,6 +1525,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
         return 2
 
     run_id = args.run_id or _gen_run_id()
+    started_at = _run_started_at()
     try:
         run_dir, logs_dir = _prepare_eval_result_dir(
             task=task,
@@ -1220,7 +1557,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
     _vprint(verbose, f"task={suite}/{task_id}")
     _vprint(
         verbose,
-        f"image={args.image} network={args.network} timeout_sec={timeout_sec}",
+        f"image={args.image} timeout_sec={timeout_sec}",
     )
 
     try:
@@ -1230,7 +1567,6 @@ def cmd_eval(args: argparse.Namespace) -> int:
             eval_dir=task.eval_dir,
             eval_cmd=eval_cmd,
             shared_eval_dir=shared_eval_dir,
-            network=args.network,
             timeout_sec=timeout_sec,
             verbose=verbose,
             cmd_log_path=logs_dir / "eval.docker_cmd.txt",
@@ -1241,7 +1577,17 @@ def cmd_eval(args: argparse.Namespace) -> int:
     except subprocess.TimeoutExpired:
         (logs_dir / "eval.stdout.txt").write_text("", encoding="utf-8")
         (logs_dir / "eval.stderr.txt").write_text("Timed out\n", encoding="utf-8")
-        print(f"Timed out after {timeout_sec}s", file=sys.stderr)
+        result = _write_failure_result(
+            run_dir,
+            error="eval_timeout",
+            message=f"Timed out after {timeout_sec}s during eval phase",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            eval_exit_code="timeout",
+        )
+        print(f"Timed out after {timeout_sec}s during eval phase", file=sys.stderr)
+        _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         return 1
 
     (logs_dir / "eval.stdout.txt").write_text(proc.stdout, encoding="utf-8")
@@ -1258,6 +1604,13 @@ def cmd_eval(args: argparse.Namespace) -> int:
         shutil.copy2(result_path, run_dir / "result.json")
         try:
             result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            _annotate_result_metadata(
+                result,
+                run_id=run_id,
+                started_at=started_at,
+                task_ref=f"{suite}/{task_id}",
+                eval_exit_code=proc.returncode,
+            )
             _append_metric(result, "eval_inner_sec", eval_inner_sec)
             (run_dir / "result.json").write_text(
                 json.dumps(result, indent=2) + "\n", encoding="utf-8"
@@ -1270,6 +1623,16 @@ def cmd_eval(args: argparse.Namespace) -> int:
             print(f"{suite}/{task_id}: wrote result.json")
     else:
         print(f"{suite}/{task_id}: eval completed (no result.json found)")
+        result = _write_failure_result(
+            run_dir,
+            error="missing_result",
+            message="Eval completed but did not produce result.json",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            eval_exit_code=proc.returncode,
+        )
+        _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         final_rc = 1
 
     return final_rc
@@ -1340,7 +1703,6 @@ def cmd_shell(args: argparse.Namespace) -> int:
         return _run_docker_shell(
             image=args.image,
             workdir=workdir,
-            network=args.network,
             cmd=cmd,
         )
     except FileNotFoundError as e:
@@ -1370,6 +1732,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         return 2
     run_id = args.run_id or _gen_run_id()
+    started_at = _run_started_at()
     try:
         run_dir, workdir, logs_dir = _prepare_run_dir(
             task=task,
@@ -1487,7 +1850,6 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
                 agent_name=agent_name,
                 agent_cfg=agent_cfg,
                 model=model,
-                network=args.network,
                 timeout_sec=timeout_sec,
                 extra_env=extra_env,
                 verbose=verbose,
@@ -1510,7 +1872,19 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
     except (FileNotFoundError, ValueError) as e:
         (logs_dir / "agent.stderr.txt").write_text(str(e) + "\n", encoding="utf-8")
         (logs_dir / "agent.exit_code.txt").write_text("setup_error\n", encoding="utf-8")
+        result = _write_failure_result(
+            run_dir,
+            error="agent_setup",
+            message=str(e),
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            agent_name=agent_name,
+            model=model,
+            agent_exit_code="setup_error",
+        )
         print(f"Agent setup failed: {e}", file=sys.stderr)
+        _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         print(str(run_dir))
         return 1
     except subprocess.TimeoutExpired as e:
@@ -1521,7 +1895,34 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             _coerce_text(e.stderr) + "\nTimed out\n", encoding="utf-8"
         )
         (logs_dir / "agent.exit_code.txt").write_text("timeout\n", encoding="utf-8")
-        print(f"Timed out after {timeout_sec}s (agent)", file=sys.stderr)
+        metrics = _extract_agent_usage_metrics(
+            agent_name,
+            _coerce_text(e.stdout),
+            _coerce_text(e.stderr),
+        )
+        metrics = _fill_missing_metric_dicts(
+            metrics,
+            _collect_postrun_agent_usage_metrics(
+                agent_name=agent_name,
+                run_dir=run_dir,
+                mode=mode,
+                workdir=workdir,
+            ),
+        )
+        result = _write_failure_result(
+            run_dir,
+            error="agent_timeout",
+            message=f"Timed out after {timeout_sec}s during agent phase",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            agent_name=agent_name,
+            model=model,
+            agent_exit_code="timeout",
+            metrics=metrics or None,
+        )
+        print(f"Timed out after {timeout_sec}s during agent phase", file=sys.stderr)
+        _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         print(str(run_dir))
         return 1
 
@@ -1530,11 +1931,37 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
     (logs_dir / "agent.exit_code.txt").write_text(
         str(op.returncode) + "\n", encoding="utf-8"
     )
+    agent_usage_metrics = _extract_agent_usage_metrics(agent_name, op.stdout, op.stderr)
+    agent_usage_metrics = _fill_missing_metric_dicts(
+        agent_usage_metrics,
+        _collect_postrun_agent_usage_metrics(
+            agent_name=agent_name,
+            run_dir=run_dir,
+            mode=mode,
+            workdir=workdir,
+        ),
+    )
     if op.returncode != 0:
+        metrics = dict(agent_usage_metrics)
+        if agent_inner_sec is not None:
+            metrics["agent_inner_sec"] = round(float(agent_inner_sec), 6)
+        result = _write_failure_result(
+            run_dir,
+            error="agent_failed",
+            message=f"Agent exited with code {op.returncode}",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            agent_name=agent_name,
+            model=model,
+            agent_exit_code=op.returncode,
+            metrics=metrics or None,
+        )
         print(f"agent failed with exit code {op.returncode}", file=sys.stderr)
         print(f"Logs: {logs_dir}", file=sys.stderr)
         if op.stderr.strip():
             print(op.stderr.strip(), file=sys.stderr)
+        _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         print(str(run_dir))
         return 1
 
@@ -1548,7 +1975,6 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             eval_dir=task.eval_dir,
             eval_cmd=eval_cmd,
             shared_eval_dir=shared_eval_dir,
-            network=args.network,
             timeout_sec=timeout_sec,
             verbose=False,
             cmd_log_path=logs_dir / "eval.docker_cmd.txt",
@@ -1559,7 +1985,25 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
     except subprocess.TimeoutExpired:
         (logs_dir / "eval.stdout.txt").write_text("", encoding="utf-8")
         (logs_dir / "eval.stderr.txt").write_text("Timed out\n", encoding="utf-8")
-        print(f"Timed out after {timeout_sec}s", file=sys.stderr)
+        metrics = dict(agent_usage_metrics)
+        if agent_inner_sec is not None:
+            metrics["agent_inner_sec"] = round(float(agent_inner_sec), 6)
+        result = _write_failure_result(
+            run_dir,
+            error="eval_timeout",
+            message=f"Timed out after {timeout_sec}s during eval phase",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            agent_name=agent_name,
+            model=model,
+            agent_exit_code=op.returncode,
+            eval_exit_code="timeout",
+            metrics=metrics or None,
+        )
+        print(f"Timed out after {timeout_sec}s during eval phase", file=sys.stderr)
+        _print_result_summary(f"{suite}/{task_id}", run_dir, result)
+        print(str(run_dir))
         return 1
 
     (logs_dir / "eval.stdout.txt").write_text(proc.stdout, encoding="utf-8")
@@ -1574,8 +2018,19 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         shutil.copy2(result_path, run_dir / "result.json")
         try:
             result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+            _annotate_result_metadata(
+                result,
+                run_id=run_id,
+                started_at=started_at,
+                task_ref=f"{suite}/{task_id}",
+                agent_name=agent_name,
+                model=model,
+                agent_exit_code=op.returncode,
+                eval_exit_code=proc.returncode,
+            )
             _append_metric(result, "agent_inner_sec", agent_inner_sec)
             _append_metric(result, "eval_inner_sec", eval_inner_sec)
+            _merge_metrics(result, agent_usage_metrics)
             (run_dir / "result.json").write_text(
                 json.dumps(result, indent=2) + "\n", encoding="utf-8"
             )
@@ -1588,6 +2043,20 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             final_rc = 1
     else:
         print(f"{suite}/{task_id}: eval completed (no result.json found)")
+        result = _write_failure_result(
+            run_dir,
+            error="missing_result",
+            message="Eval completed but did not produce result.json",
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            agent_name=agent_name,
+            model=model,
+            agent_exit_code=op.returncode,
+            eval_exit_code=proc.returncode,
+            metrics=agent_usage_metrics or None,
+        )
+        _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         final_rc = 1
 
     return final_rc
@@ -1618,8 +2087,7 @@ def main(argv: list[str]) -> int:
     p_run = sub.add_parser("run", help="Run agent solve + eval")
     p_run.add_argument("agents", help="Path to single-agent TOML config")
     p_run.add_argument("task", help="Task in the form <suite>/<task_id>")
-    p_run.add_argument("--image", default="scibench:0.1", help="Docker image tag")
-    p_run.add_argument("--network", choices=["on", "off"], default="on")
+    p_run.add_argument("--image", default="simbench:0.1", help="Docker image tag")
     p_run.add_argument("--timeout-sec", type=int, default=600)
     p_run.add_argument("--run-id", default="")
     p_run.add_argument("--result-dir", default="")
@@ -1628,8 +2096,7 @@ def main(argv: list[str]) -> int:
     p_eval = sub.add_parser("eval", help="Run eval-only on an existing workdir")
     p_eval.add_argument("task", help="Task in the form <suite>/<task_id>")
     p_eval.add_argument("--workdir", required=True)
-    p_eval.add_argument("--image", default="scibench:0.1", help="Docker image tag")
-    p_eval.add_argument("--network", choices=["on", "off"], default="on")
+    p_eval.add_argument("--image", default="simbench:0.1", help="Docker image tag")
     p_eval.add_argument("--timeout-sec", type=int, default=600)
     p_eval.add_argument("--run-id", default="")
     p_eval.add_argument("--result-dir", default="")
@@ -1647,8 +2114,7 @@ def main(argv: list[str]) -> int:
     )
     p_shell.add_argument("agents", help="Path to single-agent TOML config")
     p_shell.add_argument("task", help="Task in the form <suite>/<task_id>")
-    p_shell.add_argument("--image", default="scibench:0.1", help="Docker image tag")
-    p_shell.add_argument("--network", choices=["on", "off"], default="on")
+    p_shell.add_argument("--image", default="simbench:0.1", help="Docker image tag")
     p_shell.add_argument("--run-id", default="")
     p_shell.add_argument("--result-dir", default="")
     p_shell.add_argument(

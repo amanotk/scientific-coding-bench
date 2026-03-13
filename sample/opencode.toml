@@ -1,11 +1,12 @@
 version = 1
 name = "opencode"
+model = "opencode/big-pickle"
 
 # This file overrides entries from agents_default.toml for a single agent.
 # If omitted, values are inherited from [agents.opencode] in agents_default.toml.
 
 # Example override:
-# model = "openai/gpt-5.3-codex"
+# model = "opencode/big-pickle"
 #
 # Optional model options (injected into cmd at $BENCH_MODEL_OPTIONS_ARGS)
 # model_options.reasoning_effort = "high"

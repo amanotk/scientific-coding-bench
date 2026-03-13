@@ -35,7 +35,7 @@ python3 scripts/build_image.py
 Direct Docker build (fallback):
 
 ```bash
-docker build -t scibench:0.1 -f docker/Dockerfile .
+docker build -t simbench:0.1 -f docker/Dockerfile .
 ```
 
 Runner basics:
@@ -44,9 +44,9 @@ Runner basics:
 python3 runner/bench.py list
 python3 runner/bench.py check
 python3 runner/bench.py prepare sample/opencode.toml demo/py
-python3 runner/bench.py shell --image scibench:0.1 sample/opencode.toml demo/py
-python3 runner/bench.py run sample/opencode.toml demo/py --image scibench:0.1
-python3 runner/bench.py eval demo/py --workdir /path/to/workdir --image scibench:0.1
+python3 runner/bench.py shell --image simbench:0.1 sample/opencode.toml demo/py
+python3 runner/bench.py run sample/opencode.toml demo/py --image simbench:0.1
+python3 runner/bench.py eval demo/py --workdir /path/to/workdir --image simbench:0.1
 ```
 
 Agent defaults:
@@ -56,14 +56,7 @@ Agent defaults:
 Quiet runner output (default is verbose):
 
 ```bash
-python3 runner/bench.py -q run sample/opencode.toml demo/py --image scibench:0.1
-```
-
-Network tracks:
-
-```bash
-python3 runner/bench.py run sample/opencode.toml demo/py --network on
-python3 runner/bench.py run sample/opencode.toml demo/py --network off
+python3 runner/bench.py -q run sample/opencode.toml demo/py --image simbench:0.1
 ```
 
 Public tests (inside an agent shell; these live under `workspace/tests/`):
@@ -75,7 +68,7 @@ pytest -q
 Run tests via the runner's shell command (no need to manually `cd`):
 
 ```bash
-python3 runner/bench.py shell --image scibench:0.1 sample/opencode.toml demo/py -- pytest -q
+python3 runner/bench.py shell --image simbench:0.1 sample/opencode.toml demo/py -- pytest -q
 ```
 
 Note: place shell options (like `--image`) before `agents task`, and use `--`
@@ -162,8 +155,8 @@ python3 runner/bench.py check <suite>/<task_id>
 - The runner mounts the task workspace at `/work` (read/write).
 - The runner mounts the eval harness at `/eval` (read-only) during `run`/`eval`.
 - The `run`/`shell`/`prepare` commands use the selected agent TOML merged over `agents_default.toml`.
-- Use `--network off` for an offline track (Docker `--network none`).
-- Keep benchmark workspaces free of secrets; with network enabled, assume the agent can exfiltrate anything it can read.
+- Docker runs always have network access. Keep benchmark workspaces free of secrets, since the agent can exfiltrate anything it can read.
+- If you want to restrict model-side web search or similar features, do it through agent/model options rather than runner networking.
 
 Runner logs:
 - `runs/.../logs/agent.docker_cmd.txt` or `runs/.../logs/agent.host_cmd.txt`: agent command line

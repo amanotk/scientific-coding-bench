@@ -83,7 +83,15 @@ def _markdown_to_plain(text: str) -> str:
 def _summarize_tool_input(value: Any) -> str:
     if not isinstance(value, dict):
         return ""
-    for key in ("command", "cmd", "shell_command", "file_path", "path", "url"):
+    for key in (
+        "command",
+        "cmd",
+        "shell_command",
+        "file_path",
+        "filePath",
+        "path",
+        "url",
+    ):
         val = value.get(key)
         if isinstance(val, str) and val.strip():
             return _clean_stream_text(val)
@@ -379,6 +387,96 @@ def _render_stream_event_copilot(
     return None, False
 
 
+def _format_opencode_stream_event(
+    phase: str,
+    obj: dict[str, Any],
+) -> tuple[bool, str | None, bool]:
+    top_type = str(obj.get("type", "")).strip().lower()
+    if top_type in {"step_start", "step_finish", "step-start", "step-finish"}:
+        return True, None, True
+
+    if top_type == "result":
+        normalized = {
+            "type": "text",
+            "text": str(obj.get("result", "")),
+        }
+        text_parts = _extract_stream_text_parts(normalized)
+        rendered, suppress_raw = _render_stream_event_codex(
+            phase,
+            normalized,
+            event_type="text",
+            low_type="text",
+            text_parts=text_parts,
+        )
+        return True, rendered, True if rendered else suppress_raw
+
+    normalized = obj
+    part = obj.get("part")
+    if isinstance(part, dict):
+        part_type = str(part.get("type", "")).strip().lower()
+        if top_type == "reasoning" or part_type == "reasoning":
+            normalized = {
+                "type": "reasoning",
+                "thinking": _markdown_to_plain(str(part.get("text", ""))),
+            }
+        elif top_type == "text" or part_type == "text":
+            normalized = {
+                "type": "text",
+                "text": str(part.get("text", "")),
+            }
+        elif top_type == "tool_use" or part_type == "tool":
+            state = part.get("state")
+            normalized = {
+                "type": "tool_use",
+                "name": part.get("tool", ""),
+                "status": "",
+            }
+            if isinstance(state, dict):
+                normalized["status"] = state.get("status", "")
+                if isinstance(state.get("input"), dict):
+                    normalized["input"] = state.get("input")
+                title = state.get("title")
+                if isinstance(title, str) and title.strip():
+                    normalized["title"] = title.strip()
+
+    event_type = ""
+    for key in ("type", "event", "kind"):
+        val = normalized.get(key)
+        if isinstance(val, str) and val.strip():
+            event_type = val.strip()
+            break
+    low_type = event_type.lower()
+
+    if low_type in {"tool_use", "tool"}:
+        name = _extract_stream_tool_name(normalized)
+        summary = _summarize_tool_input(normalized.get("input"))
+        title = normalized.get("title")
+        msg = ""
+        if name and summary:
+            msg = f"{name} {summary}"
+        elif name and isinstance(title, str) and title.strip():
+            msg = f"{name} {title.strip()}"
+        else:
+            msg = name or summary
+        msg = _clean_stream_text(msg)
+        if msg:
+            status = _extract_stream_status(normalized)
+            if status and status not in {"completed", "done", "success"}:
+                msg += f" ({status})"
+            return True, f"[{phase}] tool: {msg}", True
+        return True, None, True
+
+    text_parts = _extract_stream_text_parts(normalized)
+    rendered, suppress_raw = _render_stream_event_codex(
+        phase,
+        normalized,
+        event_type=event_type,
+        low_type=low_type,
+        text_parts=text_parts,
+    )
+    return True, rendered, suppress_raw
+
+
 def _format_claude_stream_event(
     phase: str,
     obj: dict[str, Any],
@@ -390,9 +488,18 @@ def _format_claude_stream_event(
     if top_type == "system":
         return True, None, True
 
+    if top_type == "result":
+        text = _clean_stream_text(str(obj.get("result", "")))
+        if text:
+            return True, f"[{phase}] text: {text}", True
+        return True, None, True
+
     if top_type == "stream_event" and isinstance(obj.get("event"), dict):
         event = obj["event"]
         event_type = str(event.get("type", "")).strip().lower()
+
+        if event_type == "message_start":
+            return True, None, True
 
         if event_type == "content_block_start":
             block = event.get("content_block")
@@ -561,6 +668,11 @@ def _format_agent_stream_event(
         return False, None, False
 
     agent_name = state.agent_name
+    if agent_name == "opencode":
+        parsed, rendered, suppress_raw = _format_opencode_stream_event(phase, obj)
+        if parsed:
+            return parsed, rendered, suppress_raw
+
     if agent_name == "claude":
         parsed, rendered, suppress_raw = _format_claude_stream_event(
             phase,
@@ -619,6 +731,15 @@ def _format_agent_plain_stream_line(phase: str, line: str) -> tuple[bool, str | 
         return False, None
 
     low = stripped.lower()
+    if agent_name == "opencode":
+        if low.startswith("thinking:"):
+            msg = _clean_stream_text(stripped.split(":", 1)[1].strip())
+            return True, f"[{phase}] thinking: {msg}"
+        if low.startswith(("implementation complete", "completed:", "summary:")):
+            msg = stripped.split(":", 1)[1].strip() if ":" in stripped else stripped
+            msg = _clean_stream_text(msg)
+            return True, f"[{phase}] text: {msg}"
+
     if agent_name == "copilot":
         if low.startswith(("thinking", "analyzing", "planning")):
             msg = stripped.split(":", 1)[1].strip() if ":" in stripped else stripped
