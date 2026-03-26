@@ -2064,6 +2064,117 @@ eval_cmd = "/eval/run.sh"
             self.assertEqual(rc, 0)
             self.assertIn("[s/t] PASS", out.getvalue())
 
+    def test_check_can_load_task_from_test_task_root(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            test_task_root = td_path / "test-tasks"
+            task_dir = test_task_root / "smoke" / "py"
+            (task_dir / "workspace" / "tests").mkdir(parents=True)
+            (task_dir / "eval").mkdir(parents=True)
+
+            (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+            (task_dir / "task.toml").write_text(
+                """
+id = "py"
+suite = "smoke"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                encoding="utf-8",
+            )
+            run_sh = task_dir / "eval" / "run.sh"
+            run_sh.write_text(
+                "#!/usr/bin/env bash\npython3 - <<'PY'\nopen('result.json','w').write('{}\\n')\nPY\n",
+                encoding="utf-8",
+            )
+            os.chmod(run_sh, 0o755)
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "TEST_TASK_ROOT", test_task_root),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(["check", "test:smoke/py"])
+
+            self.assertEqual(rc, 0)
+            self.assertIn("[smoke/py] PASS", out.getvalue())
+
+    def test_check_rejects_ambiguous_task_reference(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            test_task_root = td_path / "test-tasks"
+
+            for root in (bench_root, test_task_root):
+                task_dir = root / "smoke" / "py"
+                (task_dir / "workspace" / "tests").mkdir(parents=True)
+                (task_dir / "eval").mkdir(parents=True)
+                (task_dir / "spec.md").write_text("# spec\n", encoding="utf-8")
+                (task_dir / "task.toml").write_text(
+                    """
+id = "py"
+suite = "smoke"
+language = "python"
+time_limit_sec = 10
+eval_cmd = "/eval/run.sh"
+""".lstrip(),
+                    encoding="utf-8",
+                )
+                run_sh = task_dir / "eval" / "run.sh"
+                run_sh.write_text(
+                    "#!/usr/bin/env bash\npython3 - <<'PY'\nopen('result.json','w').write('{}\\n')\nPY\n",
+                    encoding="utf-8",
+                )
+                os.chmod(run_sh, 0o755)
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "TEST_TASK_ROOT", test_task_root),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(["check", "smoke/py"])
+
+            self.assertEqual(rc, 1)
+            self.assertIn("ambiguous", out.getvalue())
+            self.assertIn(
+                "Use bench:<suite>/<task_id> or test:<suite>/<task_id>", out.getvalue()
+            )
+
+    def test_list_excludes_test_tasks_by_default(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            bench_root = td_path / "benchmarks"
+            test_task_root = td_path / "test-tasks"
+
+            benchmark_task = bench_root / "demo" / "py"
+            benchmark_task.mkdir(parents=True)
+            (benchmark_task / "spec.md").write_text("# benchmark\n", encoding="utf-8")
+            (benchmark_task / "task.toml").write_text("id='py'\n", encoding="utf-8")
+
+            smoke_task = test_task_root / "smoke" / "py"
+            smoke_task.mkdir(parents=True)
+            (smoke_task / "spec.md").write_text("# smoke\n", encoding="utf-8")
+            (smoke_task / "task.toml").write_text("id='py'\n", encoding="utf-8")
+
+            with (
+                mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "TEST_TASK_ROOT", test_task_root),
+            ):
+                out = StringIO()
+                err = StringIO()
+                with redirect_stdout(out), redirect_stderr(err):
+                    rc = bench.main(["list"])
+
+            self.assertEqual(rc, 0)
+            self.assertIn("demo/py", out.getvalue())
+            self.assertNotIn("smoke/py", out.getvalue())
+
     def test_check_fails_for_missing_required_fields(self):
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
@@ -2232,12 +2343,13 @@ class TestOpenCodeSmoke(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
             bench_root = td_path / "benchmarks"
+            test_task_root = td_path / "test-tasks"
             runs_root = td_path / "runs"
             agents_default_path = td_path / "agents_default.toml"
             task_src = (
-                Path(__file__).resolve().parents[1] / "benchmarks" / "smoke" / "py"
+                Path(__file__).resolve().parents[1] / "test-tasks" / "smoke" / "py"
             )
-            task_dir = bench_root / "smoke" / "py"
+            task_dir = test_task_root / "smoke" / "py"
             shutil.copytree(task_src, task_dir)
 
             run_sh = task_dir / "eval" / "run.sh"
@@ -2330,10 +2442,31 @@ model = "opencode/big-pickle"
             env = dict(os.environ)
             env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
 
+            def fake_eval(*, workdir, cmd_log_path=None, **_kwargs):
+                (workdir / "result.json").write_text(
+                    json.dumps({"status": "passed", "score": 1.0}) + "\n",
+                    encoding="utf-8",
+                )
+                if cmd_log_path is not None:
+                    cmd_log_path.write_text(
+                        "docker run simbench fake-eval\n", encoding="utf-8"
+                    )
+                return (
+                    subprocess.CompletedProcess(
+                        ["docker", "run", "simbench", "fake-eval"],
+                        0,
+                        stdout="",
+                        stderr="",
+                    ),
+                    0.05,
+                )
+
             with (
                 mock.patch.object(bench, "BENCH_ROOT", bench_root),
+                mock.patch.object(bench, "TEST_TASK_ROOT", test_task_root),
                 mock.patch.object(bench, "RUNS_ROOT", runs_root),
                 mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
+                mock.patch.object(bench, "_run_docker_eval", side_effect=fake_eval),
                 mock.patch.dict(os.environ, env, clear=True),
             ):
                 out = StringIO()
@@ -2343,7 +2476,7 @@ model = "opencode/big-pickle"
                         [
                             "run",
                             str(agents_toml),
-                            "smoke/py",
+                            "test:smoke/py",
                             "--image",
                             "simbench:0.1",
                         ]
@@ -2418,7 +2551,7 @@ model = "opencode/big-pickle"
                     [
                         "run",
                         str(sample_cfg),
-                        "smoke/py",
+                        "test:smoke/py",
                         "--image",
                         "simbench:0.1",
                         "--result-dir",

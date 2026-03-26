@@ -28,6 +28,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for Python <3.11
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BENCH_ROOT = REPO_ROOT / "benchmarks"
+TEST_TASK_ROOT = REPO_ROOT / "test-tasks"
 RUNS_ROOT = REPO_ROOT / "runs"
 AGENTS_DEFAULT_PATH = REPO_ROOT / "agents_default.toml"
 
@@ -837,6 +838,58 @@ class Task:
     meta: dict
 
 
+def _task_roots(*, include_test_tasks: bool) -> list[Path]:
+    roots = [BENCH_ROOT]
+    if include_test_tasks:
+        roots.append(TEST_TASK_ROOT)
+    return roots
+
+
+def _task_path(root: Path, suite: str, task_id: str) -> Path:
+    return root / suite / task_id
+
+
+def _task_root_label(root: Path) -> str:
+    try:
+        return root.relative_to(REPO_ROOT).as_posix() + "/"
+    except ValueError:
+        return str(root)
+
+
+def _task_root_map() -> dict[str, Path]:
+    return {
+        "bench": BENCH_ROOT,
+        "benchmark": BENCH_ROOT,
+        "test": TEST_TASK_ROOT,
+        "test-task": TEST_TASK_ROOT,
+        "test-tasks": TEST_TASK_ROOT,
+    }
+
+
+def _parse_task_ref(task_ref: str) -> tuple[Path | None, str, str]:
+    raw = task_ref.strip()
+    if not raw:
+        raise ValueError("Task must be in the form <suite>/<task_id>")
+
+    root: Path | None = None
+    body = raw
+    if ":" in raw:
+        maybe_root, maybe_body = raw.split(":", 1)
+        mapped = _task_root_map().get(maybe_root.strip().lower())
+        if mapped is not None:
+            root = mapped
+            body = maybe_body.strip()
+
+    if "/" not in body:
+        raise ValueError("Task must be in the form <suite>/<task_id>")
+    suite, task_id = body.split("/", 1)
+    suite = suite.strip()
+    task_id = task_id.strip()
+    if not suite or not task_id:
+        raise ValueError("Task must be in the form <suite>/<task_id>")
+    return root, suite, task_id
+
+
 def _task_meta_bool(task: Task, key: str) -> bool:
     if key not in task.meta:
         return False
@@ -875,8 +928,33 @@ def _coerce_text(v: object) -> str:
     return str(v)
 
 
-def _load_task(suite: str, task_id: str) -> Task:
-    task_path = BENCH_ROOT / suite / task_id
+def _load_task(suite: str, task_id: str, *, root: Path | None = None) -> Task:
+    task_path: Path | None = None
+    searched: list[str] = []
+    roots = [root] if root is not None else _task_roots(include_test_tasks=True)
+    matches: list[Path] = []
+    for candidate_root in roots:
+        searched.append(_task_root_label(candidate_root))
+        candidate = _task_path(candidate_root, suite, task_id)
+        if candidate.exists():
+            matches.append(candidate)
+
+    if len(matches) > 1:
+        locations = ", ".join(str(p) for p in matches)
+        raise FileNotFoundError(
+            f"Task reference is ambiguous: {suite}/{task_id} (matches: {locations}). "
+            "Use bench:<suite>/<task_id> or test:<suite>/<task_id>."
+        )
+
+    if matches:
+        task_path = matches[0]
+
+    if task_path is None:
+        roots = ", ".join(searched)
+        raise FileNotFoundError(
+            f"Task not found: {suite}/{task_id} (searched: {roots})"
+        )
+
     spec_path = task_path / "spec.md"
     task_toml_path = task_path / "task.toml"
     workspace_tpl = task_path / "workspace"
@@ -908,13 +986,16 @@ def _load_task(suite: str, task_id: str) -> Task:
     )
 
 
-def _iter_tasks():
-    if not BENCH_ROOT.exists():
-        return
-    for suite_dir in sorted([p for p in BENCH_ROOT.iterdir() if p.is_dir()]):
-        for task_dir in sorted([p for p in suite_dir.iterdir() if p.is_dir()]):
-            if (task_dir / "spec.md").exists() and (task_dir / "task.toml").exists():
-                yield (suite_dir.name, task_dir.name)
+def _iter_tasks(*, include_test_tasks: bool = False):
+    for root in _task_roots(include_test_tasks=include_test_tasks):
+        if not root.exists():
+            continue
+        for suite_dir in sorted([p for p in root.iterdir() if p.is_dir()]):
+            for task_dir in sorted([p for p in suite_dir.iterdir() if p.is_dir()]):
+                if (task_dir / "spec.md").exists() and (
+                    task_dir / "task.toml"
+                ).exists():
+                    yield (suite_dir.name, task_dir.name)
 
 
 def cmd_list(_args: argparse.Namespace) -> int:
@@ -1040,12 +1121,15 @@ def _check_task(task: Task) -> tuple[list[str], list[str]]:
 
 def cmd_check(args: argparse.Namespace) -> int:
     task_refs: list[tuple[str, str]] = []
+    task_root: Path | None = None
 
     if args.task:
-        if "/" not in args.task:
-            print("Task must be in the form <suite>/<task_id>", file=sys.stderr)
+        try:
+            task_root, suite, task_id = _parse_task_ref(args.task)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
             return 2
-        task_refs.append(tuple(args.task.split("/", 1)))
+        task_refs.append((suite, task_id))
     else:
         task_refs.extend(_iter_tasks())
 
@@ -1058,7 +1142,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     for suite, task_id in task_refs:
         label = f"{suite}/{task_id}"
         try:
-            task = _load_task(suite, task_id)
+            task = _load_task(suite, task_id, root=task_root)
         except Exception as e:
             print(f"[{label}] FAIL")
             print(f"- error: {e}")
@@ -1505,12 +1589,12 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_eval(args: argparse.Namespace) -> int:
     verbose = not bool(args.quiet)
 
-    if "/" not in args.task:
-        print("Task must be in the form <suite>/<task_id>", file=sys.stderr)
+    try:
+        task_root, suite, task_id = _parse_task_ref(args.task)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
         return 2
-
-    suite, task_id = args.task.split("/", 1)
-    task = _load_task(suite, task_id)
+    task = _load_task(suite, task_id, root=task_root)
 
     eval_cmd = str(task.meta.get("eval_cmd", ""))
     if not eval_cmd:
@@ -1639,11 +1723,12 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
 
 def cmd_prepare(args: argparse.Namespace) -> int:
-    if "/" not in args.task:
-        print("Task must be in the form <suite>/<task_id>", file=sys.stderr)
+    try:
+        task_root, suite, task_id = _parse_task_ref(args.task)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
         return 2
-    suite, task_id = args.task.split("/", 1)
-    task = _load_task(suite, task_id)
+    task = _load_task(suite, task_id, root=task_root)
 
     try:
         _load_agent_config(Path(str(args.agents)))
@@ -1671,11 +1756,12 @@ def cmd_prepare(args: argparse.Namespace) -> int:
 
 
 def cmd_shell(args: argparse.Namespace) -> int:
-    if "/" not in args.task:
-        print("Task must be in the form <suite>/<task_id>", file=sys.stderr)
+    try:
+        task_root, suite, task_id = _parse_task_ref(args.task)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
         return 2
-    suite, task_id = args.task.split("/", 1)
-    task = _load_task(suite, task_id)
+    task = _load_task(suite, task_id, root=task_root)
 
     try:
         _load_agent_config(Path(str(args.agents)))
@@ -1713,12 +1799,12 @@ def cmd_shell(args: argparse.Namespace) -> int:
 def _cmd_agent_common(*, args: argparse.Namespace) -> int:
     verbose = not bool(args.quiet)
 
-    if "/" not in args.task:
-        print("Task must be in the form <suite>/<task_id>", file=sys.stderr)
+    try:
+        task_root, suite, task_id = _parse_task_ref(args.task)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
         return 2
-
-    suite, task_id = args.task.split("/", 1)
-    task = _load_task(suite, task_id)
+    task = _load_task(suite, task_id, root=task_root)
 
     eval_cmd = str(task.meta.get("eval_cmd", ""))
     if not eval_cmd:
@@ -2080,13 +2166,13 @@ def main(argv: list[str]) -> int:
         "task",
         nargs="?",
         default="",
-        help="Optional task in the form <suite>/<task_id> (defaults to all tasks)",
+        help="Optional task in the form [bench:|test:]<suite>/<task_id> (defaults to listed benchmark tasks)",
     )
     p_check.set_defaults(fn=cmd_check)
 
     p_run = sub.add_parser("run", help="Run agent solve + eval")
     p_run.add_argument("agents", help="Path to single-agent TOML config")
-    p_run.add_argument("task", help="Task in the form <suite>/<task_id>")
+    p_run.add_argument("task", help="Task in the form [bench:|test:]<suite>/<task_id>")
     p_run.add_argument("--image", default="simbench:0.1", help="Docker image tag")
     p_run.add_argument("--timeout-sec", type=int, default=600)
     p_run.add_argument("--run-id", default="")
@@ -2094,7 +2180,7 @@ def main(argv: list[str]) -> int:
     p_run.set_defaults(fn=cmd_run)
 
     p_eval = sub.add_parser("eval", help="Run eval-only on an existing workdir")
-    p_eval.add_argument("task", help="Task in the form <suite>/<task_id>")
+    p_eval.add_argument("task", help="Task in the form [bench:|test:]<suite>/<task_id>")
     p_eval.add_argument("--workdir", required=True)
     p_eval.add_argument("--image", default="simbench:0.1", help="Docker image tag")
     p_eval.add_argument("--timeout-sec", type=int, default=600)
@@ -2104,7 +2190,9 @@ def main(argv: list[str]) -> int:
 
     p_prepare = sub.add_parser("prepare", help="Create an isolated run workspace")
     p_prepare.add_argument("agents", help="Path to single-agent TOML config")
-    p_prepare.add_argument("task", help="Task in the form <suite>/<task_id>")
+    p_prepare.add_argument(
+        "task", help="Task in the form [bench:|test:]<suite>/<task_id>"
+    )
     p_prepare.add_argument("--run-id", default="")
     p_prepare.add_argument("--result-dir", default="")
     p_prepare.set_defaults(fn=cmd_prepare)
@@ -2113,7 +2201,9 @@ def main(argv: list[str]) -> int:
         "shell", help="Open an interactive shell in the task workspace"
     )
     p_shell.add_argument("agents", help="Path to single-agent TOML config")
-    p_shell.add_argument("task", help="Task in the form <suite>/<task_id>")
+    p_shell.add_argument(
+        "task", help="Task in the form [bench:|test:]<suite>/<task_id>"
+    )
     p_shell.add_argument("--image", default="simbench:0.1", help="Docker image tag")
     p_shell.add_argument("--run-id", default="")
     p_shell.add_argument("--result-dir", default="")
