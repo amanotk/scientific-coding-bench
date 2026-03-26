@@ -82,11 +82,21 @@ Run the tiny OpenCode smoke task (kept under `test-tasks/`, not `benchmarks/`):
 python3 runner/bench.py run sample/opencode-smoke.toml test:smoke/py --image simbench:0.1
 ```
 
+Run the tiny Copilot smoke task:
+
+```bash
+python3 runner/bench.py run sample/copilot-smoke.toml test:smoke/py --image simbench:0.1
+```
+
 Runner smoke tests:
 
 - `python3 -m unittest -q tests.test_runner_bench.TestOpenCodeSmoke`
+- `python3 -m unittest -q tests.test_runner_bench.TestCopilotSmoke`
 - Set `SIMBENCH_SKIP_OPENCODE_SMOKE=1` to skip the live OpenCode smoke run.
+- Set `SIMBENCH_SKIP_COPILOT_SMOKE=1` to skip the live Copilot smoke run.
+- Set `COPILOT_GITHUB_TOKEN` for token-only Copilot CLI auth.
 - CI runs the live OpenCode smoke by default.
+- CI runs the live Copilot smoke on `py3.11` when `COPILOT_GITHUB_TOKEN` is available.
 - CI pulls `ghcr.io/amanotk/simbench:<head-branch>` for PRs when available, falls back to `ghcr.io/amanotk/simbench:develop`, and otherwise builds locally.
 
 Eval only:

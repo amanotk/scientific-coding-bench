@@ -2311,8 +2311,10 @@ class TestAgentBinaries(unittest.TestCase):
             )
 
 
-class TestOpenCodeSmoke(unittest.TestCase):
-    def _require_docker_image_with_opencode(self, image: str) -> None:
+class SmokeTestHelpers:
+    def _require_docker_image_with_binary(
+        self, image: str, binary: str, *, skip_env: str, label: str
+    ) -> None:
         inspect = subprocess.run(
             ["docker", "image", "inspect", image],
             text=True,
@@ -2323,11 +2325,11 @@ class TestOpenCodeSmoke(unittest.TestCase):
         )
         if inspect.returncode != 0:
             self.skipTest(
-                f"Docker image {image} not found locally; set SIMBENCH_SKIP_OPENCODE_SMOKE=1 to suppress this smoke test explicitly"
+                f"Docker image {image} not found locally; set {skip_env}=1 to suppress this smoke test explicitly"
             )
 
         probe = subprocess.run(
-            ["docker", "run", "--rm", image, "bash", "-lc", "command -v opencode"],
+            ["docker", "run", "--rm", image, "bash", "-lc", f"command -v {binary}"],
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -2336,8 +2338,18 @@ class TestOpenCodeSmoke(unittest.TestCase):
         )
         if probe.returncode != 0:
             self.skipTest(
-                f"OpenCode CLI not available inside {image}; set SIMBENCH_SKIP_OPENCODE_SMOKE=1 to suppress this smoke test explicitly"
+                f"{label} CLI not available inside {image}; set {skip_env}=1 to suppress this smoke test explicitly"
             )
+
+
+class TestOpenCodeSmoke(SmokeTestHelpers, unittest.TestCase):
+    def _require_docker_image_with_opencode(self, image: str) -> None:
+        self._require_docker_image_with_binary(
+            image,
+            "opencode",
+            skip_env="SIMBENCH_SKIP_OPENCODE_SMOKE",
+            label="OpenCode",
+        )
 
     def test_run_uses_fake_opencode_end_to_end(self):
         with tempfile.TemporaryDirectory() as td:
@@ -2596,3 +2608,90 @@ model = "opencode/big-pickle"
                 encoding="utf-8"
             )
             self.assertTrue(agent_stdout.strip() or agent_stderr.strip())
+
+
+class TestCopilotSmoke(SmokeTestHelpers, unittest.TestCase):
+    def _require_docker_image_with_copilot(self, image: str) -> None:
+        self._require_docker_image_with_binary(
+            image,
+            "copilot",
+            skip_env="SIMBENCH_SKIP_COPILOT_SMOKE",
+            label="Copilot",
+        )
+
+    def test_real_copilot_smoke_task(self):
+        if os.environ.get("SIMBENCH_SKIP_COPILOT_SMOKE") == "1":
+            self.skipTest("Skipping Copilot smoke test via SIMBENCH_SKIP_COPILOT_SMOKE")
+
+        if not os.environ.get("COPILOT_GITHUB_TOKEN"):
+            self.skipTest(
+                "COPILOT_GITHUB_TOKEN not set; set SIMBENCH_SKIP_COPILOT_SMOKE=1 to suppress this smoke test explicitly"
+            )
+
+        if not shutil.which("docker"):
+            self.skipTest(
+                "Docker binary not found on PATH; set SIMBENCH_SKIP_COPILOT_SMOKE=1 to suppress this smoke test explicitly"
+            )
+
+        repo_root = Path(__file__).resolve().parents[1]
+        sample_cfg = repo_root / "sample" / "copilot-smoke.toml"
+        self._require_docker_image_with_copilot("simbench:0.1")
+        with tempfile.TemporaryDirectory() as td:
+            result_dir = Path(td) / "run"
+            out = StringIO()
+            err = StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = bench.main(
+                    [
+                        "run",
+                        str(sample_cfg),
+                        "test:smoke/py",
+                        "--image",
+                        "simbench:0.1",
+                        "--result-dir",
+                        str(result_dir),
+                    ]
+                )
+
+            self.assertEqual(
+                rc,
+                0,
+                msg=(
+                    "Copilot smoke run failed. "
+                    f"stdout={out.getvalue()} stderr={err.getvalue()}"
+                ),
+            )
+            self.assertTrue((result_dir / "result.json").exists())
+            self.assertTrue((result_dir / "logs" / "agent.stdout.txt").exists())
+            self.assertTrue((result_dir / "logs" / "agent.stderr.txt").exists())
+            self.assertTrue((result_dir / "logs" / "eval.stdout.txt").exists())
+            self.assertTrue((result_dir / "logs" / "eval.stderr.txt").exists())
+
+            result = json.loads(
+                (result_dir / "result.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(result["score"], 1.0)
+            _assert_result_metadata(
+                self,
+                result,
+                task="smoke/py",
+                agent="copilot",
+                model="gpt-5-mini",
+                agent_exit_code=0,
+                eval_exit_code=0,
+            )
+            self.assertIn("metrics", result)
+            self.assertIn("agent_input_tokens", result["metrics"])
+            self.assertIn("agent_output_tokens", result["metrics"])
+            self.assertIn("agent_cached_input_tokens", result["metrics"])
+            self.assertEqual(result["metrics"].get("agent_usage_model"), "gpt-5-mini")
+
+            agent_stdout = (result_dir / "logs" / "agent.stdout.txt").read_text(
+                encoding="utf-8"
+            )
+            agent_stderr = (result_dir / "logs" / "agent.stderr.txt").read_text(
+                encoding="utf-8"
+            )
+            self.assertTrue(agent_stdout.strip() or agent_stderr.strip())
+            self.assertIn("Total usage est:", agent_stderr)
