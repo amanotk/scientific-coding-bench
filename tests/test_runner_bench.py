@@ -29,6 +29,47 @@ def _write_agent_toml(path: Path, body: str) -> None:
     path.write_text("version = 1\n" + body, encoding="utf-8")
 
 
+def _fixture_text(name: str) -> str:
+    path = Path(__file__).resolve().parent / "fixtures" / "agent_streams" / name
+    return path.read_text(encoding="utf-8")
+
+
+def _replay_pretty_stdout(agent_name: str, stdout: str) -> list[str]:
+    phase = f"agent:{agent_name}"
+    state = bench._StreamPrettyState(agent_name=agent_name)
+    rendered_lines: list[str] = []
+
+    for line in stdout.splitlines(keepends=True):
+        parsed, rendered, suppress_raw = bench._format_agent_stream_event(
+            phase,
+            line,
+            state=state,
+        )
+        if parsed:
+            if rendered:
+                rendered_lines.append(rendered)
+                continue
+            if suppress_raw:
+                continue
+
+        parsed_plain, rendered_plain = bench._format_agent_plain_stream_line(
+            phase, line
+        )
+        if parsed_plain:
+            if rendered_plain:
+                rendered_lines.append(rendered_plain)
+            continue
+
+        stripped = line.rstrip("\n")
+        if stripped:
+            rendered_lines.append(f"[{phase}] stdout: {stripped}")
+
+    flushed = bench.flush_stream_state(phase, state)
+    if flushed:
+        rendered_lines.append(flushed)
+    return rendered_lines
+
+
 def _assert_result_metadata(
     case: unittest.TestCase,
     result: dict,
@@ -109,6 +150,16 @@ class TestBenchHelpers(unittest.TestCase):
         self.assertEqual(metrics["agent_output_tokens"], 512)
         self.assertEqual(metrics["agent_cached_input_tokens"], 4096)
 
+    def test_extract_agent_usage_metrics_for_claude_golden_output(self):
+        stdout = _fixture_text("claude_smoke.stdout.txt")
+
+        metrics = bench._extract_agent_usage_metrics("claude", stdout)
+
+        self.assertEqual(metrics["agent_input_tokens"], 30)
+        self.assertEqual(metrics["agent_output_tokens"], 414)
+        self.assertEqual(metrics["agent_cached_input_tokens"], 81590)
+        self.assertEqual(metrics["agent_cache_creation_input_tokens"], 20847)
+
     def test_extract_agent_usage_metrics_for_codex_turn_completed(self):
         stdout = "\n".join(
             [
@@ -123,6 +174,15 @@ class TestBenchHelpers(unittest.TestCase):
         self.assertEqual(metrics["agent_input_tokens"], 24763)
         self.assertEqual(metrics["agent_output_tokens"], 122)
         self.assertEqual(metrics["agent_cached_input_tokens"], 24448)
+
+    def test_extract_agent_usage_metrics_for_codex_golden_output(self):
+        stdout = _fixture_text("codex_smoke.stdout.txt")
+
+        metrics = bench._extract_agent_usage_metrics("codex", stdout)
+
+        self.assertEqual(metrics["agent_input_tokens"], 40987)
+        self.assertEqual(metrics["agent_output_tokens"], 605)
+        self.assertEqual(metrics["agent_cached_input_tokens"], 37248)
 
     def test_extract_agent_usage_metrics_ignores_plain_text_opencode_output(self):
         metrics = bench._extract_agent_usage_metrics(
@@ -691,6 +751,38 @@ class TestBenchHelpers(unittest.TestCase):
         self.assertIn("[agent:copilot] thinking: inspect tests", streamed)
         self.assertIn("[agent:copilot] tool: Running pytest -q", streamed)
         self.assertNotIn("[agent:copilot] stdout: Thinking:", streamed)
+
+    def test_replay_pretty_stdout_for_codex_golden_output(self):
+        rendered_lines = _replay_pretty_stdout(
+            "codex", _fixture_text("codex_smoke.stdout.txt")
+        )
+        rendered = "\n".join(rendered_lines)
+
+        self.assertIn(
+            "[agent:codex] text: I’ll read the spec at `/run/spec.md` first",
+            rendered,
+        )
+        self.assertIn(
+            "[agent:codex] tool: /usr/bin/bash -lc 'pytest -q' (completed)",
+            rendered,
+        )
+        self.assertIn("[agent:codex] patch: /work/src/add.py", rendered)
+        self.assertNotIn('[agent:codex] stdout: {"type":"turn.completed"', rendered)
+
+    def test_replay_pretty_stdout_for_claude_golden_output(self):
+        rendered_lines = _replay_pretty_stdout(
+            "claude", _fixture_text("claude_smoke.stdout.txt")
+        )
+        rendered = "\n".join(rendered_lines)
+
+        self.assertIn(
+            "[agent:claude] thinking: I need to read the spec file first",
+            rendered,
+        )
+        self.assertIn("[agent:claude] tool: Read /run/spec.md", rendered)
+        self.assertIn("[agent:claude] tool: Bash pytest -q", rendered)
+        self.assertIn("[agent:claude] text: All tests pass.", rendered)
+        self.assertNotIn('[agent:claude] stdout: {"type":"result"', rendered)
 
     def test_model_options_render_args(self):
         args = bench._model_options_to_args(
