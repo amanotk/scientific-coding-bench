@@ -105,6 +105,9 @@ jobs:
       - name: Validate task scaffolding
         run: python3 runner/bench.py check
 
+      - name: Validate smoke task scaffolding
+        run: python3 runner/bench.py check test:smoke/py
+
   formatting-check:
     name: Formatting checks
     runs-on: ubuntu-latest
