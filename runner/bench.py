@@ -70,6 +70,16 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     import execution_agent as _execution_agent  # type: ignore[no-redef]
 
+try:
+    from runner import run_record_helpers as _run_record_helpers
+except ModuleNotFoundError:  # pragma: no cover
+    import run_record_helpers as _run_record_helpers  # type: ignore[no-redef]
+
+try:
+    from runner import publish_helpers as _publish_helpers
+except ModuleNotFoundError:  # pragma: no cover
+    import publish_helpers as _publish_helpers  # type: ignore[no-redef]
+
 _append_metric = _results_helpers._append_metric
 _annotate_result_metadata = _results_helpers._annotate_result_metadata
 _format_kilotokens = _results_helpers._format_kilotokens
@@ -95,6 +105,10 @@ _fill_missing_metric_dicts = _metrics_helpers._fill_missing_metric_dicts
 _collect_postrun_agent_usage_metrics = (
     _metrics_helpers._collect_postrun_agent_usage_metrics
 )
+
+_merge_run_provenance = _run_record_helpers.merge_run_provenance
+
+_build_publication_payload = _publish_helpers.build_publication_payload
 
 _StreamPrettyState = _stream_pretty._StreamPrettyState
 _format_agent_stream_event = _stream_pretty._format_agent_stream_event
@@ -236,6 +250,20 @@ def _coerce_text(v: object) -> str:
     return str(v)
 
 
+def _write_run_record_json(run_dir: Path, result: dict[str, Any]) -> None:
+    run_record = _merge_run_provenance(dict(result), REPO_ROOT)
+    (run_dir / "run.json").write_text(
+        json.dumps(run_record, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _resolve_publish_run_dir(run_dir_text: str) -> Path:
+    run_dir = Path(_expand_path(run_dir_text))
+    if not run_dir.is_absolute():
+        run_dir = (Path.cwd() / run_dir).resolve()
+    return run_dir
+
+
 def _load_task(suite: str, task_id: str, *, root: Path | None = None) -> Task:
     return _task_loading_helpers._load_task(
         suite,
@@ -263,6 +291,36 @@ def cmd_list(_args: argparse.Namespace) -> int:
 
 def _check_task(task: Task) -> tuple[list[str], list[str]]:
     return _task_loading_helpers._check_task(task)
+
+
+def _print_publish_payload(run_dir: Path, payload: dict[str, Any]) -> None:
+    print(f"[{run_dir}] Publication")
+    print("payload:")
+    payload_json = {key: value for key, value in payload.items() if key != "body"}
+    print(json.dumps(payload_json, indent=2, ensure_ascii=False, sort_keys=True))
+    print("body:")
+    print(payload["body"], end="")
+
+
+def cmd_publish(args: argparse.Namespace) -> int:
+    run_dir = _resolve_publish_run_dir(str(args.run_dir))
+    if not run_dir.exists() or not run_dir.is_dir():
+        print(f"run directory not found or not a directory: {run_dir}", file=sys.stderr)
+        return 2
+
+    try:
+        payload = _build_publication_payload(run_dir)
+    except (
+        FileNotFoundError,
+        NotADirectoryError,
+        json.JSONDecodeError,
+        ValueError,
+    ) as e:
+        print(f"Failed to load publication payload: {e}", file=sys.stderr)
+        return 2
+
+    _print_publish_payload(run_dir, payload)
+    return 0
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -571,6 +629,16 @@ def cmd_eval(args: argparse.Namespace) -> int:
         )
     except FileNotFoundError as e:
         print(f"Failed to run docker: {e}", file=sys.stderr)
+        result = _write_failure_result(
+            run_dir,
+            error="eval_setup",
+            message=str(e),
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            eval_exit_code="setup_error",
+        )
+        _write_run_record_json(run_dir, result)
         return 1
     except subprocess.TimeoutExpired:
         (logs_dir / "eval.stdout.txt").write_text("", encoding="utf-8")
@@ -584,6 +652,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
             task_ref=f"{suite}/{task_id}",
             eval_exit_code="timeout",
         )
+        _write_run_record_json(run_dir, result)
         print(f"Timed out after {timeout_sec}s during eval phase", file=sys.stderr)
         _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         return 1
@@ -613,11 +682,22 @@ def cmd_eval(args: argparse.Namespace) -> int:
             (run_dir / "result.json").write_text(
                 json.dumps(result, indent=2) + "\n", encoding="utf-8"
             )
+            _write_run_record_json(run_dir, result)
             status = result.get("status", "unknown")
             _print_result_summary(f"{suite}/{task_id}", run_dir, result)
             if status != "passed":
                 final_rc = 1
         except Exception:
+            failure_result = _write_failure_result(
+                run_dir,
+                error="result_parse_error",
+                message="Eval completed but result.json could not be parsed",
+                run_id=run_id,
+                started_at=started_at,
+                task_ref=f"{suite}/{task_id}",
+                eval_exit_code=proc.returncode,
+            )
+            _write_run_record_json(run_dir, failure_result)
             print(f"{suite}/{task_id}: wrote result.json")
     else:
         print(f"{suite}/{task_id}: eval completed (no result.json found)")
@@ -630,6 +710,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
             task_ref=f"{suite}/{task_id}",
             eval_exit_code=proc.returncode,
         )
+        _write_run_record_json(run_dir, result)
         _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         final_rc = 1
 
@@ -883,6 +964,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             model=model,
             agent_exit_code="setup_error",
         )
+        _write_run_record_json(run_dir, result)
         print(f"Agent setup failed: {e}", file=sys.stderr)
         _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         print(str(run_dir))
@@ -921,6 +1003,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             agent_exit_code="timeout",
             metrics=metrics or None,
         )
+        _write_run_record_json(run_dir, result)
         print(f"Timed out after {timeout_sec}s during agent phase", file=sys.stderr)
         _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         print(str(run_dir))
@@ -957,6 +1040,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             agent_exit_code=op.returncode,
             metrics=metrics or None,
         )
+        _write_run_record_json(run_dir, result)
         print(f"agent failed with exit code {op.returncode}", file=sys.stderr)
         print(f"Logs: {logs_dir}", file=sys.stderr)
         if op.stderr.strip():
@@ -981,6 +1065,20 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
         )
     except FileNotFoundError as e:
         print(f"Failed to run docker: {e}", file=sys.stderr)
+        result = _write_failure_result(
+            run_dir,
+            error="eval_setup",
+            message=str(e),
+            run_id=run_id,
+            started_at=started_at,
+            task_ref=f"{suite}/{task_id}",
+            agent_name=agent_name,
+            model=model,
+            agent_exit_code=op.returncode,
+            eval_exit_code="setup_error",
+            metrics=agent_usage_metrics or None,
+        )
+        _write_run_record_json(run_dir, result)
         return 1
     except subprocess.TimeoutExpired:
         (logs_dir / "eval.stdout.txt").write_text("", encoding="utf-8")
@@ -1001,6 +1099,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             eval_exit_code="timeout",
             metrics=metrics or None,
         )
+        _write_run_record_json(run_dir, result)
         print(f"Timed out after {timeout_sec}s during eval phase", file=sys.stderr)
         _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         print(str(run_dir))
@@ -1034,11 +1133,26 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             (run_dir / "result.json").write_text(
                 json.dumps(result, indent=2) + "\n", encoding="utf-8"
             )
+            _write_run_record_json(run_dir, result)
             status = result.get("status", "unknown")
             _print_result_summary(f"{suite}/{task_id}", run_dir, result)
             if status != "passed":
                 final_rc = 1
         except Exception:
+            failure_result = _write_failure_result(
+                run_dir,
+                error="result_parse_error",
+                message="Eval completed but result.json could not be parsed",
+                run_id=run_id,
+                started_at=started_at,
+                task_ref=f"{suite}/{task_id}",
+                agent_name=agent_name,
+                model=model,
+                agent_exit_code=op.returncode,
+                eval_exit_code=proc.returncode,
+                metrics=agent_usage_metrics or None,
+            )
+            _write_run_record_json(run_dir, failure_result)
             print(f"{suite}/{task_id}: wrote result.json")
             final_rc = 1
     else:
@@ -1056,6 +1170,7 @@ def _cmd_agent_common(*, args: argparse.Namespace) -> int:
             eval_exit_code=proc.returncode,
             metrics=agent_usage_metrics or None,
         )
+        _write_run_record_json(run_dir, result)
         _print_result_summary(f"{suite}/{task_id}", run_dir, result)
         final_rc = 1
 
@@ -1101,6 +1216,12 @@ def main(argv: list[str]) -> int:
     p_eval.add_argument("--run-id", default="")
     p_eval.add_argument("--result-dir", default="")
     p_eval.set_defaults(fn=cmd_eval)
+
+    p_publish = sub.add_parser(
+        "publish", help="Render a publication payload for a completed run"
+    )
+    p_publish.add_argument("run_dir", help="Path to a completed run directory")
+    p_publish.set_defaults(fn=cmd_publish)
 
     p_prepare = sub.add_parser("prepare", help="Create an isolated run workspace")
     p_prepare.add_argument("agents", help="Path to single-agent TOML config")

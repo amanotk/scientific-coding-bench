@@ -107,6 +107,16 @@ Eval only:
 python3 runner/bench.py eval demo/py --workdir /path/to/workdir --image simbench:0.1
 ```
 
+Publish a completed run:
+
+```bash
+python3 runner/bench.py publish runs/<run_id>/<suite>/<task_id>
+```
+
+The publish command validates the run record and renders a deterministic issue
+payload for benchmark result publication. See `docs/run-flow.md` for details on
+run artifacts and the publication workflow.
+
 ## Repository Layout
 
 - `benchmarks/<suite>`: benchmark suites
