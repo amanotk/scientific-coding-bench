@@ -1,4 +1,5 @@
 runs/
+.swarm/
 *.pyc
 __pycache__/
 .pytest_cache/
