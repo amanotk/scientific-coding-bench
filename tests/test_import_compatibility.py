@@ -7,9 +7,8 @@ Focuses on boundary and regression cases for import compatibility.
 
 import subprocess
 import sys
+import unittest
 from pathlib import Path
-
-import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +26,7 @@ def _run_test_code(code: str) -> subprocess.CompletedProcess:
     )
 
 
-class TestMetricsHelpersImportCompatibility:
+class TestMetricsHelpersImportCompatibility(unittest.TestCase):
     """Test import compatibility under different invocation patterns."""
 
     def test_package_import_works(self):
@@ -137,7 +136,7 @@ print("BENCH_COMPATIBLE_OK")
         assert "BENCH_COMPATIBLE_OK" in result.stdout
 
 
-class TestMetricsHelpersBoundaryCases:
+class TestMetricsHelpersBoundaryCases(unittest.TestCase):
     """Boundary cases for import compatibility."""
 
     def test_import_with_multiple_package_attempts(self):
@@ -199,7 +198,7 @@ print("CHANGED_CWD_OK")
         assert "CHANGED_CWD_OK" in result.stdout
 
 
-class TestMetricsHelpersFunctionalRegression:
+class TestMetricsHelpersFunctionalRegression(unittest.TestCase):
     """Verify functional regression - core functions work correctly."""
 
     def test_parse_human_token_count_boundaries(self):
@@ -293,7 +292,7 @@ print("AGENT_METRICS_OK")
         assert "AGENT_METRICS_OK" in result.stdout
 
 
-class TestMetricsHelpersDirectScriptMode:
+class TestMetricsHelpersDirectScriptMode(unittest.TestCase):
     """Test direct script execution (python runner/metrics_helpers.py)."""
 
     def test_direct_execution_does_not_crash(self):
@@ -340,7 +339,7 @@ print("SYSPATH_MOD_OK")
         assert "SYSPATH_MOD_OK" in result.stdout
 
 
-class TestMetricsHelpersTypeConsistency:
+class TestMetricsHelpersTypeConsistency(unittest.TestCase):
     """Test that types are consistent across import modes."""
 
     def test_function_type_consistency(self):
@@ -384,4 +383,4 @@ print("TYPE_CONSISTENCY_OK")
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    unittest.main()
