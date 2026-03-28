@@ -100,7 +100,7 @@ jobs:
           SIMBENCH_SKIP_OPENCODE_SMOKE: '1'
           COPILOT_GITHUB_TOKEN: ${{ matrix.python-version == '3.11' && secrets.COPILOT_GITHUB_TOKEN || '' }}
           SIMBENCH_SKIP_COPILOT_SMOKE: ${{ matrix.python-version != '3.11' && '1' || '' }}
-        run: python3 -m unittest -q discover -s tests -p 'test_runner_*.py'
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -q
 
       - name: Validate task scaffolding
         run: python3 runner/bench.py check
