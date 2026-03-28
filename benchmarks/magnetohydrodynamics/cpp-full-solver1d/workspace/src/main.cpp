@@ -4,8 +4,6 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
-#include <vector>
-
 int main(int argc, char** argv)
 {
   if (argc != 2) {
@@ -20,15 +18,15 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  const mhd1d::ProblemConfig            problem               = mhd1d::make_brio_wu_example();
-  const std::vector<mhd1d::StateVector> final_primitive_cells = mhd1d::run_full_simulation(problem);
-  const std::vector<double>             centers =
+  const mhd1d::ProblemConfig problem               = mhd1d::make_brio_wu_example();
+  const mhd1d::StateArray2D  final_primitive_cells = mhd1d::run_full_simulation(problem);
+  const std::vector<double>  centers =
       mhd1d::cell_centers(problem.nx, problem.x_left, problem.x_right);
 
   std::cout << "x,rho,u,v,w,p,by,bz\n";
   std::cout << std::setprecision(17);
-  for (std::size_t index = 0; index < final_primitive_cells.size(); ++index) {
-    const mhd1d::StateVector& cell = final_primitive_cells[index];
+  for (std::size_t index = 0; index < final_primitive_cells.rows(); ++index) {
+    const mhd1d::StateVector cell = final_primitive_cells.load(index);
     std::cout << centers[index] << ',' << cell[0] << ',' << cell[1] << ',' << cell[2] << ','
               << cell[3] << ',' << cell[4] << ',' << cell[5] << ',' << cell[6] << '\n';
   }

@@ -26,6 +26,7 @@ add_library(mhd1d_solver
 
 target_include_directories(mhd1d_solver PUBLIC
   src
+  ../../../common/include
 )
 
 add_executable(cpp_full_solver1d
@@ -51,6 +52,7 @@ target_link_libraries(cpp_full_solver1d_public_tests PRIVATE
 
 target_include_directories(cpp_full_solver1d_public_tests PRIVATE
   src
+  ../../../common/include
 )
 
 set_target_properties(cpp_full_solver1d_public_tests PROPERTIES

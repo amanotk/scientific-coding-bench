@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <stdexcept>
 #include <utility>
 
@@ -34,24 +35,115 @@ double minmod3(double first, double second, double third)
   return 0.0;
 }
 
-} // namespace
-
-namespace
+StateArray2D conservative_profile_to_primitive_profile(const StateArray2D& conservative_cells,
+                                                       double bx, double gamma)
 {
-
-std::vector<StateVector>
-conservative_profile_to_primitive_profile(const std::vector<StateVector>& conservative_cells,
-                                          double bx, double gamma)
-{
-  std::vector<StateVector> primitive_cells(conservative_cells.size());
-  for (std::size_t index = 0; index < conservative_cells.size(); ++index) {
-    primitive_cells[index] = conservative_to_primitive(conservative_cells[index], bx, gamma);
+  StateArray2D primitive_cells(conservative_cells.rows());
+  for (std::size_t index = 0; index < conservative_cells.rows(); ++index) {
+    primitive_cells.store(index,
+                          conservative_to_primitive(conservative_cells.load(index), bx, gamma));
   }
 
   return primitive_cells;
 }
 
 } // namespace
+
+StateArray2D::StateArray2D() : buffer(), view_()
+{
+}
+
+StateArray2D::StateArray2D(std::size_t rows) : buffer(rows * kStateWidth, 0.0), view_()
+{
+  rebind_view();
+}
+
+StateArray2D::StateArray2D(const StateArray2D& other) : buffer(other.buffer), view_()
+{
+  rebind_view();
+}
+
+StateArray2D::StateArray2D(StateArray2D&& other) noexcept : buffer(std::move(other.buffer)), view_()
+{
+  rebind_view();
+  other.rebind_view();
+}
+
+StateArray2D& StateArray2D::operator=(const StateArray2D& other)
+{
+  if (this != &other) {
+    buffer = other.buffer;
+    rebind_view();
+  }
+  return *this;
+}
+
+StateArray2D& StateArray2D::operator=(StateArray2D&& other) noexcept
+{
+  if (this != &other) {
+    buffer = std::move(other.buffer);
+    rebind_view();
+    other.rebind_view();
+  }
+  return *this;
+}
+
+std::size_t StateArray2D::rows() const
+{
+  return buffer.size() / kStateWidth;
+}
+
+std::size_t StateArray2D::cols() const
+{
+  return kStateWidth;
+}
+
+double* StateArray2D::row_data(std::size_t row)
+{
+  return buffer.data() + row * kStateWidth;
+}
+
+const double* StateArray2D::row_data(std::size_t row) const
+{
+  return buffer.data() + row * kStateWidth;
+}
+
+StateVector StateArray2D::load(std::size_t row) const
+{
+  StateVector state{};
+  std::memcpy(state.data(), row_data(row), sizeof(double) * kStateWidth);
+  return state;
+}
+
+void StateArray2D::store(std::size_t row, const StateVector& state)
+{
+  std::memcpy(row_data(row), state.data(), sizeof(double) * kStateWidth);
+}
+
+double& StateArray2D::operator()(std::size_t row, std::size_t col)
+{
+  return view_(row, col);
+}
+
+const double& StateArray2D::operator()(std::size_t row, std::size_t col) const
+{
+  return view_(row, col);
+}
+
+StateView StateArray2D::view()
+{
+  return view_;
+}
+
+ConstStateView StateArray2D::view() const
+{
+  return ConstStateView(buffer.data(), rows(), kStateWidth);
+}
+
+void StateArray2D::rebind_view()
+{
+  view_ = StateView(buffer.data(), rows(), kStateWidth);
+}
 
 ProblemConfig make_brio_wu_example()
 {
@@ -108,24 +200,22 @@ StateVector conservative_to_primitive(const StateVector& conservative, double bx
   return StateVector{rho, u, v, w, pressure, by, bz};
 }
 
-std::vector<StateVector> mc2_slopes(const std::vector<StateVector>& primitive_cells)
+StateArray2D mc2_slopes(const StateArray2D& primitive_cells)
 {
-  if (primitive_cells.size() < 3U) {
+  if (primitive_cells.rows() < 3U) {
     throw std::runtime_error("primitive_cells must contain at least three cells");
   }
 
-  std::vector<StateVector> slopes(primitive_cells.size());
-  for (std::size_t index = 1; index + 1U < primitive_cells.size(); ++index) {
-    const StateVector& left_cell     = primitive_cells[index - 1U];
-    const StateVector& center_cell   = primitive_cells[index];
-    const StateVector& right_cell    = primitive_cells[index + 1U];
-    StateVector&       limited_slope = slopes[index];
-
+  StateArray2D slopes(primitive_cells.rows());
+  for (std::size_t index = 1; index + 1U < primitive_cells.rows(); ++index) {
     for (std::size_t component = 0; component < kStateWidth; ++component) {
-      const double left_difference     = center_cell[component] - left_cell[component];
-      const double right_difference    = right_cell[component] - center_cell[component];
-      const double centered_difference = 0.5 * (right_cell[component] - left_cell[component]);
-      limited_slope[component] =
+      const double left_difference =
+          primitive_cells(index, component) - primitive_cells(index - 1U, component);
+      const double right_difference =
+          primitive_cells(index + 1U, component) - primitive_cells(index, component);
+      const double centered_difference =
+          0.5 * (primitive_cells(index + 1U, component) - primitive_cells(index - 1U, component));
+      slopes(index, component) =
           minmod3(2.0 * left_difference, centered_difference, 2.0 * right_difference);
     }
   }
@@ -133,21 +223,21 @@ std::vector<StateVector> mc2_slopes(const std::vector<StateVector>& primitive_ce
   return slopes;
 }
 
-std::pair<std::vector<StateVector>, std::vector<StateVector>>
-reconstruct_mc2_interfaces(const std::vector<StateVector>& primitive_cells)
+std::pair<StateArray2D, StateArray2D>
+reconstruct_mc2_interfaces(const StateArray2D& primitive_cells)
 {
-  const std::vector<StateVector> slopes          = mc2_slopes(primitive_cells);
-  const std::size_t              interface_count = primitive_cells.size() - 1U;
+  const StateArray2D slopes          = mc2_slopes(primitive_cells);
+  const std::size_t  interface_count = primitive_cells.rows() - 1U;
 
-  std::vector<StateVector> left_states(interface_count);
-  std::vector<StateVector> right_states(interface_count);
+  StateArray2D left_states(interface_count);
+  StateArray2D right_states(interface_count);
 
   for (std::size_t index = 0; index < interface_count; ++index) {
     for (std::size_t component = 0; component < kStateWidth; ++component) {
-      left_states[index][component] =
-          primitive_cells[index][component] + 0.5 * slopes[index][component];
-      right_states[index][component] =
-          primitive_cells[index + 1U][component] - 0.5 * slopes[index + 1U][component];
+      left_states(index, component) =
+          primitive_cells(index, component) + 0.5 * slopes(index, component);
+      right_states(index, component) =
+          primitive_cells(index + 1U, component) - 0.5 * slopes(index + 1U, component);
     }
   }
 
@@ -352,17 +442,20 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
   };
 }
 
-std::vector<StateVector> pad_zero_gradient_ghost_cells(const std::vector<StateVector>& cells)
+StateArray2D pad_zero_gradient_ghost_cells(const StateArray2D& cells)
 {
-  if (cells.empty()) {
+  if (cells.rows() == 0U) {
     return {};
   }
 
-  std::vector<StateVector> padded;
-  padded.reserve(cells.size() + 4U);
-  padded.insert(padded.end(), 2U, cells.front());
-  padded.insert(padded.end(), cells.begin(), cells.end());
-  padded.insert(padded.end(), 2U, cells.back());
+  StateArray2D padded(cells.rows() + 2U * kGhostWidth);
+  for (std::size_t ghost = 0; ghost < kGhostWidth; ++ghost) {
+    padded.store(ghost, cells.load(0));
+    padded.store(padded.rows() - 1U - ghost, cells.load(cells.rows() - 1U));
+  }
+  for (std::size_t index = 0; index < cells.rows(); ++index) {
+    padded.store(index + kGhostWidth, cells.load(index));
+  }
   return padded;
 }
 
@@ -385,62 +478,61 @@ std::vector<double> cell_centers(std::size_t nx, double x_left, double x_right)
   return centers;
 }
 
-std::vector<StateVector> brio_wu_initial_profile(const ProblemConfig& problem)
+StateArray2D brio_wu_initial_profile(const ProblemConfig& problem)
 {
   const std::vector<double> centers = cell_centers(problem.nx, problem.x_left, problem.x_right);
-  std::vector<StateVector>  profile(problem.nx);
+  StateArray2D              profile(problem.nx);
 
   for (std::size_t index = 0; index < centers.size(); ++index) {
-    profile[index] = (centers[index] < problem.discontinuity_x) ? problem.left_primitive
-                                                                : problem.right_primitive;
+    profile.store(index, (centers[index] < problem.discontinuity_x) ? problem.left_primitive
+                                                                    : problem.right_primitive);
   }
 
   return profile;
 }
 
-std::vector<StateVector> run_full_simulation(const ProblemConfig& problem)
+StateArray2D run_full_simulation(const ProblemConfig& problem)
 {
   if (problem.nx == 0U) {
     return {};
   }
 
-  const std::vector<StateVector> initial_primitive_profile = brio_wu_initial_profile(problem);
-  std::vector<StateVector>       conservative_cells(initial_primitive_profile.size());
-  for (std::size_t index = 0; index < initial_primitive_profile.size(); ++index) {
-    conservative_cells[index] =
-        primitive_to_conservative(initial_primitive_profile[index], problem.bx, problem.gamma);
+  const StateArray2D initial_primitive_profile = brio_wu_initial_profile(problem);
+  StateArray2D       conservative_cells(initial_primitive_profile.rows());
+  for (std::size_t index = 0; index < initial_primitive_profile.rows(); ++index) {
+    conservative_cells.store(index, primitive_to_conservative(initial_primitive_profile.load(index),
+                                                              problem.bx, problem.gamma));
   }
 
-  const double dx = (problem.x_right - problem.x_left) / static_cast<double>(problem.nx);
-  const std::vector<StateVector> evolved_conservative_cells = evolve_ssp_rk3_fixed_dt(
+  const double       dx = (problem.x_right - problem.x_left) / static_cast<double>(problem.nx);
+  const StateArray2D evolved_conservative_cells = evolve_ssp_rk3_fixed_dt(
       conservative_cells, problem.t_final, problem.dt, dx, problem.bx, problem.gamma);
 
-  std::vector<StateVector> final_primitive_profile(evolved_conservative_cells.size());
-  for (std::size_t index = 0; index < evolved_conservative_cells.size(); ++index) {
-    final_primitive_profile[index] =
-        conservative_to_primitive(evolved_conservative_cells[index], problem.bx, problem.gamma);
+  StateArray2D final_primitive_profile(evolved_conservative_cells.rows());
+  for (std::size_t index = 0; index < evolved_conservative_cells.rows(); ++index) {
+    final_primitive_profile.store(index,
+                                  conservative_to_primitive(evolved_conservative_cells.load(index),
+                                                            problem.bx, problem.gamma));
   }
 
   return final_primitive_profile;
 }
 
-std::vector<StateVector>
-compute_semidiscrete_rhs(const std::vector<StateVector>& conservative_cells, double bx,
-                         double gamma)
+StateArray2D compute_semidiscrete_rhs(const StateArray2D& conservative_cells, double bx,
+                                      double gamma)
 {
-  if (conservative_cells.empty()) {
+  if (conservative_cells.rows() == 0U) {
     throw std::runtime_error("conservative_cells must contain at least one cell");
   }
 
-  const double dx = 1.0 / static_cast<double>(conservative_cells.size());
+  const double dx = 1.0 / static_cast<double>(conservative_cells.rows());
   return compute_semidiscrete_rhs(conservative_cells, dx, bx, gamma);
 }
 
-std::vector<StateVector>
-compute_semidiscrete_rhs(const std::vector<StateVector>& conservative_cells, double dx, double bx,
-                         double gamma)
+StateArray2D compute_semidiscrete_rhs(const StateArray2D& conservative_cells, double dx, double bx,
+                                      double gamma)
 {
-  if (conservative_cells.empty()) {
+  if (conservative_cells.rows() == 0U) {
     throw std::runtime_error("conservative_cells must contain at least one cell");
   }
 
@@ -448,49 +540,43 @@ compute_semidiscrete_rhs(const std::vector<StateVector>& conservative_cells, dou
     throw std::runtime_error("dx must be positive");
   }
 
-  const std::vector<StateVector> padded_conservative =
-      pad_zero_gradient_ghost_cells(conservative_cells);
-  const std::vector<StateVector> padded_primitive =
+  const StateArray2D padded_conservative = pad_zero_gradient_ghost_cells(conservative_cells);
+  const StateArray2D padded_primitive =
       conservative_profile_to_primitive_profile(padded_conservative, bx, gamma);
-  const std::pair<std::vector<StateVector>, std::vector<StateVector>> interface_states =
+  const auto [left_interface_states, right_interface_states] =
       reconstruct_mc2_interfaces(padded_primitive);
 
-  const std::vector<StateVector>& left_interface_states  = interface_states.first;
-  const std::vector<StateVector>& right_interface_states = interface_states.second;
-
-  std::vector<StateVector> interface_fluxes(left_interface_states.size());
-  for (std::size_t index = 0; index < left_interface_states.size(); ++index) {
-    interface_fluxes[index] = hlld_flux_from_primitive(left_interface_states[index],
-                                                       right_interface_states[index], bx, gamma);
-  }
-
-  std::vector<StateVector> rhs(conservative_cells.size());
-  for (std::size_t index = 0; index < conservative_cells.size(); ++index) {
+  StateArray2D rhs(conservative_cells.rows());
+  for (std::size_t index = 0; index < conservative_cells.rows(); ++index) {
+    const StateVector right_flux =
+        hlld_flux_from_primitive(left_interface_states.load(index + kGhostWidth),
+                                 right_interface_states.load(index + kGhostWidth), bx, gamma);
+    const StateVector left_flux =
+        hlld_flux_from_primitive(left_interface_states.load(index + kGhostWidth - 1U),
+                                 right_interface_states.load(index + kGhostWidth - 1U), bx, gamma);
     for (std::size_t component = 0; component < kStateWidth; ++component) {
-      rhs[index][component] = -(interface_fluxes[index + kGhostWidth][component] -
-                                interface_fluxes[index + kGhostWidth - 1U][component]) /
-                              dx;
+      rhs(index, component) = -(right_flux[component] - left_flux[component]) / dx;
     }
   }
 
   return rhs;
 }
 
-std::vector<StateVector> ssp_rk3_step(const std::vector<StateVector>& conservative_cells, double dt,
-                                      double bx, double gamma)
+StateArray2D ssp_rk3_step(const StateArray2D& conservative_cells, double dt, double bx,
+                          double gamma)
 {
-  if (conservative_cells.empty()) {
+  if (conservative_cells.rows() == 0U) {
     throw std::runtime_error("conservative_cells must contain at least one cell");
   }
 
-  const double dx = 1.0 / static_cast<double>(conservative_cells.size());
+  const double dx = 1.0 / static_cast<double>(conservative_cells.rows());
   return ssp_rk3_step(conservative_cells, dt, dx, bx, gamma);
 }
 
-std::vector<StateVector> ssp_rk3_step(const std::vector<StateVector>& conservative_cells, double dt,
-                                      double dx, double bx, double gamma)
+StateArray2D ssp_rk3_step(const StateArray2D& conservative_cells, double dt, double dx, double bx,
+                          double gamma)
 {
-  if (conservative_cells.empty()) {
+  if (conservative_cells.rows() == 0U) {
     throw std::runtime_error("conservative_cells must contain at least one cell");
   }
 
@@ -498,54 +584,52 @@ std::vector<StateVector> ssp_rk3_step(const std::vector<StateVector>& conservati
     throw std::runtime_error("dt must be positive");
   }
 
-  std::vector<StateVector>       first_stage = conservative_cells;
-  const std::vector<StateVector> first_rhs =
-      compute_semidiscrete_rhs(conservative_cells, dx, bx, gamma);
-  for (std::size_t index = 0; index < first_stage.size(); ++index) {
+  StateArray2D       first_stage = conservative_cells;
+  const StateArray2D first_rhs   = compute_semidiscrete_rhs(conservative_cells, dx, bx, gamma);
+  for (std::size_t index = 0; index < first_stage.rows(); ++index) {
     for (std::size_t component = 0; component < kStateWidth; ++component) {
-      first_stage[index][component] += dt * first_rhs[index][component];
+      first_stage(index, component) += dt * first_rhs(index, component);
     }
   }
 
-  std::vector<StateVector>       second_stage = conservative_cells;
-  const std::vector<StateVector> second_rhs = compute_semidiscrete_rhs(first_stage, dx, bx, gamma);
-  for (std::size_t index = 0; index < second_stage.size(); ++index) {
+  StateArray2D       second_stage = conservative_cells;
+  const StateArray2D second_rhs   = compute_semidiscrete_rhs(first_stage, dx, bx, gamma);
+  for (std::size_t index = 0; index < second_stage.rows(); ++index) {
     for (std::size_t component = 0; component < kStateWidth; ++component) {
-      second_stage[index][component] =
-          0.75 * conservative_cells[index][component] +
-          0.25 * (first_stage[index][component] + dt * second_rhs[index][component]);
+      second_stage(index, component) =
+          0.75 * conservative_cells(index, component) +
+          0.25 * (first_stage(index, component) + dt * second_rhs(index, component));
     }
   }
 
-  const std::vector<StateVector> third_rhs  = compute_semidiscrete_rhs(second_stage, dx, bx, gamma);
-  std::vector<StateVector>       next_stage = conservative_cells;
-  for (std::size_t index = 0; index < next_stage.size(); ++index) {
+  const StateArray2D third_rhs  = compute_semidiscrete_rhs(second_stage, dx, bx, gamma);
+  StateArray2D       next_stage = conservative_cells;
+  for (std::size_t index = 0; index < next_stage.rows(); ++index) {
     for (std::size_t component = 0; component < kStateWidth; ++component) {
-      next_stage[index][component] =
-          (1.0 / 3.0) * conservative_cells[index][component] +
-          (2.0 / 3.0) * (second_stage[index][component] + dt * third_rhs[index][component]);
+      next_stage(index, component) =
+          (1.0 / 3.0) * conservative_cells(index, component) +
+          (2.0 / 3.0) * (second_stage(index, component) + dt * third_rhs(index, component));
     }
   }
 
   return next_stage;
 }
 
-std::vector<StateVector> evolve_ssp_rk3_fixed_dt(const std::vector<StateVector>& conservative_cells,
-                                                 double t_final, double dt, double bx, double gamma)
+StateArray2D evolve_ssp_rk3_fixed_dt(const StateArray2D& conservative_cells, double t_final,
+                                     double dt, double bx, double gamma)
 {
-  if (conservative_cells.empty()) {
+  if (conservative_cells.rows() == 0U) {
     throw std::runtime_error("conservative_cells must contain at least one cell");
   }
 
-  const double dx = 1.0 / static_cast<double>(conservative_cells.size());
+  const double dx = 1.0 / static_cast<double>(conservative_cells.rows());
   return evolve_ssp_rk3_fixed_dt(conservative_cells, t_final, dt, dx, bx, gamma);
 }
 
-std::vector<StateVector> evolve_ssp_rk3_fixed_dt(const std::vector<StateVector>& conservative_cells,
-                                                 double t_final, double dt, double dx, double bx,
-                                                 double gamma)
+StateArray2D evolve_ssp_rk3_fixed_dt(const StateArray2D& conservative_cells, double t_final,
+                                     double dt, double dx, double bx, double gamma)
 {
-  if (conservative_cells.empty()) {
+  if (conservative_cells.rows() == 0U) {
     throw std::runtime_error("conservative_cells must contain at least one cell");
   }
 
@@ -557,8 +641,8 @@ std::vector<StateVector> evolve_ssp_rk3_fixed_dt(const std::vector<StateVector>&
     throw std::runtime_error("dt must be positive");
   }
 
-  std::vector<StateVector> evolved_state = conservative_cells;
-  double                   elapsed_time  = 0.0;
+  StateArray2D evolved_state = conservative_cells;
+  double       elapsed_time  = 0.0;
   while (elapsed_time < t_final) {
     const double remaining_time = t_final - elapsed_time;
     const double step_dt        = std::min(dt, remaining_time);
