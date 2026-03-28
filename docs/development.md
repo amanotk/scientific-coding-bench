@@ -190,3 +190,7 @@ When modifying publication logic:
 3. Ensure publication signals are generated correctly
 4. Test label generation for all status combinations
 5. Verify the payload includes both `body` and `body_payload` fields
+
+Smoke-task agent configs used by tests live under `tests/fixtures/agent_configs/`.
+If you need a smoke config while validating publish-related changes, use those
+fixture paths rather than the historical `sample/` smoke locations.
