@@ -2,6 +2,10 @@
 
 This guide is for benchmark authors who want to create new tasks.
 
+Real benchmark tasks live under `benchmarks/`. Test-only smoke or E2E support
+tasks should live under `test-tasks/` instead. Run them explicitly with a task
+reference like `test:smoke/py` to avoid ambiguity with real benchmarks.
+
 
 ## 10-minute quickstart
 
@@ -27,8 +31,8 @@ python3 runner/bench.py check <suite>/<task_id>
 4) Iterate locally:
 
 ```bash
-python3 runner/bench.py shell --image scibench:0.1 sample/opencode.toml <suite>/<task_id>
-python3 runner/bench.py run sample/opencode.toml <suite>/<task_id> --image scibench:0.1
+python3 runner/bench.py shell --image simbench:0.1 sample/opencode.toml <suite>/<task_id>
+python3 runner/bench.py run sample/opencode.toml <suite>/<task_id> --image simbench:0.1
 ```
 
 

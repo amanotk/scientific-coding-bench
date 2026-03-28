@@ -16,6 +16,7 @@ Repo map (core):
 - `benchmarks/<suite>/<task_id>/task.toml`: task metadata for the runner
 - `benchmarks/<suite>/<task_id>/workspace/`: template copied into a fresh per-run workdir
 - `benchmarks/<suite>/<task_id>/eval/`: evaluation harness (should be hidden from the model)
+- `test-tasks/<suite>/<task_id>/`: smoke and E2E support tasks runnable through the CLI via `test:<suite>/<task_id>`
 - `runner/bench.py`: CLI (list/check/prepare/shell/run/eval)
 - `agents_default.toml`: default multi-agent config (opencode/codex/claude/copilot)
 - `sample/*.toml`: sample single-agent overrides
@@ -26,7 +27,21 @@ Repo map (core):
 
 ## Build / Lint / Test Commands
 
-Build the unified Docker image:
+For normal local use, pull the published GHCR image and tag it as
+`simbench:0.1`:
+
+```bash
+docker pull ghcr.io/amanotk/simbench:develop
+docker tag ghcr.io/amanotk/simbench:develop simbench:0.1
+```
+
+If the package is not publicly accessible to you, authenticate first:
+
+```bash
+docker login ghcr.io
+```
+
+Build the unified Docker image locally only if needed:
 
 ```bash
 python3 scripts/build_image.py
@@ -35,7 +50,7 @@ python3 scripts/build_image.py
 Direct Docker build (fallback):
 
 ```bash
-docker build -t scibench:0.1 -f docker/Dockerfile .
+docker build -t simbench:0.1 -f docker/Dockerfile .
 ```
 
 Runner basics:
@@ -44,9 +59,9 @@ Runner basics:
 python3 runner/bench.py list
 python3 runner/bench.py check
 python3 runner/bench.py prepare sample/opencode.toml demo/py
-python3 runner/bench.py shell --image scibench:0.1 sample/opencode.toml demo/py
-python3 runner/bench.py run sample/opencode.toml demo/py --image scibench:0.1
-python3 runner/bench.py eval demo/py --workdir /path/to/workdir --image scibench:0.1
+python3 runner/bench.py shell --image simbench:0.1 sample/opencode.toml demo/py
+python3 runner/bench.py run sample/opencode.toml demo/py --image simbench:0.1
+python3 runner/bench.py eval demo/py --workdir /path/to/workdir --image simbench:0.1
 ```
 
 Agent defaults:
@@ -56,7 +71,7 @@ Agent defaults:
 Quiet runner output (default is verbose):
 
 ```bash
-python3 runner/bench.py -q run sample/opencode.toml demo/py --image scibench:0.1
+python3 runner/bench.py -q run sample/opencode.toml demo/py --image simbench:0.1
 ```
 
 Public tests (inside an agent shell; these live under `workspace/tests/`):
@@ -68,7 +83,7 @@ pytest -q
 Run tests via the runner's shell command (no need to manually `cd`):
 
 ```bash
-python3 runner/bench.py shell --image scibench:0.1 sample/opencode.toml demo/py -- pytest -q
+python3 runner/bench.py shell --image simbench:0.1 sample/opencode.toml demo/py -- pytest -q
 ```
 
 Note: place shell options (like `--image`) before `agents task`, and use `--`
@@ -119,13 +134,23 @@ Notes:
 Runner tests:
 
 ```bash
-python3 -m unittest -q tests.test_runner_bench
+python3 -m unittest -q tests.test_runner_smoke
+python3 -m unittest -q tests.test_runner_helpers
+python3 -m unittest -q tests.test_runner_cli_flow
+python3 -m unittest -q tests.test_runner_check_cmd
+python3 -m unittest -q tests.test_runner_bench_adversarial
+```
+
+Run all runner tests:
+
+```bash
+python3 -m unittest -q discover -s tests -p 'test_runner_*.py'
 ```
 
 Run a single test:
 
 ```bash
-python3 -m unittest -q tests.test_runner_bench.TestBenchHelpers.test_expand_path
+python3 -m unittest -q tests.test_runner_helpers.TestBenchHelpers.test_expand_path
 ```
 
 Timeouts:

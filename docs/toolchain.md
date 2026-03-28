@@ -1,9 +1,26 @@
 # Toolchain Reference
 
 This document describes what is available by default in the benchmark Docker
-image (`scibench:0.1`).
+image (`simbench:0.1`). For normal local use, pull the published GHCR image
+instead of building it yourself. This repo publishes
+`ghcr.io/amanotk/simbench:develop` for the shared `develop` toolchain. Build
+locally only if you need a custom toolchain or you have changed
+`docker/Dockerfile` or `scripts/build_image.py`.
 
-Build the image with:
+Pull and tag the published image with:
+
+```bash
+docker pull ghcr.io/amanotk/simbench:develop
+docker tag ghcr.io/amanotk/simbench:develop simbench:0.1
+```
+
+If the package is not publicly accessible to you, authenticate first:
+
+```bash
+docker login ghcr.io
+```
+
+Build the image locally with:
 
 ```bash
 python3 scripts/build_image.py
@@ -43,9 +60,9 @@ target_link_libraries(your_tests PRIVATE Catch2::Catch2WithMain)
 
 ## Fortran Utility Libraries
 
-FLAP is installed from release `v1.2.16` with dependencies FACE and PENF.
-FACE/PENF are pinned to the exact revisions used by FLAP's `fpm.toml` for
-deterministic builds.
+FLAP is built from the pinned `v1.2.16` source tarball with dependencies FACE
+and PENF vendored explicitly during image build. FACE/PENF are pinned to the
+exact revisions used by FLAP's `fpm.toml` for deterministic builds.
 
 Additional Fortran libraries:
 

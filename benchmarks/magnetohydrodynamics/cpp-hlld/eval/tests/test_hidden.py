@@ -11,8 +11,9 @@ def _build_hidden_tests() -> Path:
             ".",
             "-B",
             "build",
-            "-DSCIBENCH_ENABLE_HIDDEN_TESTS=ON",
-            f"-DSCIBENCH_HIDDEN_TEST_SOURCE={hidden_source}",
+<<<<<<< HEAD
+            "-DSIMBENCH_ENABLE_HIDDEN_TESTS=ON",
+            f"-DSIMBENCH_HIDDEN_TEST_SOURCE={hidden_source}",
         ],
         check=True,
     )

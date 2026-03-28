@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   test-and-check:
     name: Tests (py${{ matrix.python-version }})
@@ -18,6 +22,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -27,6 +33,61 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v4
 
+      - name: Detect toolchain image changes
+        id: toolchain_changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            toolchain:
+              - docker/Dockerfile
+              - scripts/build_image.py
+              - .github/workflows/toolchain-image.yml
+
+      - name: Log in to GHCR
+        if: steps.toolchain_changes.outputs.toolchain != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare SimBench image
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.toolchain_changes.outputs.toolchain }}" = "true" ]; then
+            python3 scripts/build_image.py --tag simbench:0.1
+            exit 0
+          fi
+
+          owner="${{ github.repository_owner }}"
+          owner="${owner,,}"
+
+          pull_and_tag() {
+            local tag="$1"
+            local image="ghcr.io/${owner}/simbench:${tag}"
+            if docker pull "$image"; then
+              docker tag "$image" simbench:0.1
+              return 0
+            fi
+            return 1
+          }
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if pull_and_tag "${{ github.event.pull_request.head.ref }}"; then
+              exit 0
+            fi
+            if pull_and_tag "develop"; then
+              exit 0
+            fi
+          else
+            if pull_and_tag "${{ github.ref_name }}"; then
+              exit 0
+            fi
+          fi
+
+          python3 scripts/build_image.py --tag simbench:0.1
+
       - name: Install TOML fallback for Python <3.11
         if: matrix.python-version == '3.10'
         run: python3 -m pip install tomli
@@ -35,10 +96,17 @@ jobs:
         run: python3 -m py_compile runner/bench.py
 
       - name: Runner unit tests
-        run: python3 -m unittest -q tests.test_runner_bench
+        env:
+          SIMBENCH_SKIP_OPENCODE_SMOKE: '1'
+          COPILOT_GITHUB_TOKEN: ${{ matrix.python-version == '3.11' && secrets.COPILOT_GITHUB_TOKEN || '' }}
+          SIMBENCH_SKIP_COPILOT_SMOKE: ${{ matrix.python-version != '3.11' && '1' || '' }}
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -q
 
       - name: Validate task scaffolding
         run: python3 runner/bench.py check
+
+      - name: Validate smoke task scaffolding
+        run: python3 runner/bench.py check test:smoke/py
 
   formatting-check:
     name: Formatting checks

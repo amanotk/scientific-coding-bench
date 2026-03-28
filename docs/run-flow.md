@@ -34,6 +34,7 @@ Each run creates a directory under `runs/<run_id>/<suite>/<task_id>/`:
 - `logs/eval.docker_cmd.txt`: the eval command line
 - `spec.md`, `task.toml`: copies of the task inputs used for traceability
 - `result.json`: the evaluation result (copied from `workdir/result.json`)
+- `run.json`: the canonical run record with full provenance metadata
 
 `runs/` is gitignored.
 
@@ -57,7 +58,7 @@ container.
 Command:
 
 ```bash
-python3 runner/bench.py run sample/opencode.toml <suite>/<task_id> --image scibench:0.1
+python3 runner/bench.py run sample/opencode.toml <suite>/<task_id> --image simbench:0.1
 ```
 
 What happens:
@@ -98,7 +99,7 @@ Agents can run in two modes:
 Command:
 
 ```bash
-python3 runner/bench.py eval <suite>/<task_id> --workdir /path/to/workdir --image scibench:0.1
+python3 runner/bench.py eval <suite>/<task_id> --workdir /path/to/workdir --image simbench:0.1
 ```
 
 What happens:
@@ -163,7 +164,6 @@ Other agent local files (sample defaults):
 
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
-  - `OPENROUTER_API_KEY`
   - `GITHUB_TOKEN`
   - `AZURE_OPENAI_API_KEY`
   - `AZURE_OPENAI_ENDPOINT`
@@ -182,11 +182,24 @@ do not print secrets into logs).
 
 The eval harness writes `/work/result.json`.
 
-Minimum fields:
+Minimum eval-written fields:
 
 ```json
 { "status": "passed|failed", "score": 0.0 }
 ```
+
+The runner normalizes copied results to include stable top-level metadata:
+
+- `run_id`: runner-generated ID for the run directory
+- `started_at`: UTC timestamp when the run started
+- `task`: task reference like `demo/py`
+- `agent`: agent name for `bench.py run` (for example `opencode`)
+- `model`: resolved model for `bench.py run`
+
+When known, the runner also adds:
+
+- `agent_exit_code`: integer exit code, or a sentinel string like `timeout` or `setup_error`
+- `eval_exit_code`: integer exit code, or `timeout`
 
 Optional `metrics` may be added for timings, accuracy, etc.
 
@@ -199,8 +212,136 @@ The runner prints a compact terminal summary after evaluation:
 
 - `status`
 - `score`
+- run metadata (`run_id`, `started_at`, `task`, optional `agent`, optional `model`)
+- optional exit codes
 - optional `metrics`
 - `run_dir`
+
+
+## Canonical Run Record (run.json)
+
+In addition to `result.json`, the runner writes a canonical `run.json` artifact
+that captures authoritative run-time provenance for publication and review.
+
+### run.json vs result.json
+
+- `result.json`: backward-compatible evaluation result used for immediate feedback
+  and historical compatibility. Contains task result (`status`, `score`) and
+  runner-added metadata.
+- `run.json`: canonical run record with full provenance for publication. Contains
+  all `result.json` fields plus repository state and completion metadata required
+  for benchmark result submission.
+
+### run.json Schema (v1.0.0)
+
+Required fields:
+
+- `schema_version`: string, always `"1.0.0"` for current schema
+- `completed_at`: string, UTC ISO-8601 timestamp (`YYYY-MM-DDTHH:MM:SSZ`)
+- `repo_commit_sha`: string, 40-character hex git commit SHA
+- `repo_branch`: string, git branch name at completion time
+- `repo_dirty`: boolean, `true` if repository had uncommitted changes
+- `task`: string, task reference (e.g., `demo/py`)
+- `status`: string, run outcome (`"passed"` or `"failed"`)
+- `score`: number, evaluation score (typically 0.0 to 1.0)
+
+Inherited from `result.json`:
+
+- `run_id`, `started_at`, `agent`, `model`, `metrics`, and other result fields
+
+Example `run.json`:
+
+```json
+{
+  "schema_version": "1.0.0",
+  "completed_at": "2026-03-28T12:34:56Z",
+  "repo_commit_sha": "abc123...40chars",
+  "repo_branch": "feature/my-benchmark",
+  "repo_dirty": false,
+  "task": "demo/py",
+  "status": "passed",
+  "score": 1.0,
+  "run_id": "20260328T123456Z-abc123",
+  "started_at": "2026-03-28T12:30:00Z",
+  "agent": "opencode",
+  "model": "gpt-4"
+}
+```
+
+The `run.json` artifact is written on every run completion, including failure
+paths (setup errors, timeouts, eval failures). The publish command validates
+required fields and will fail if the record has missing or invalid fields.
+
+
+## Publish Workflow
+
+After a benchmark run completes, you can render a publication payload for review
+and submission using the `publish` command:
+
+```bash
+python3 runner/bench.py publish runs/<run_id>/<suite>/<task_id>
+```
+
+The publish command:
+
+1. Loads and validates the `run.json` record from the run directory
+2. Checks schema compliance and required fields
+3. Generates publication signals (e.g., `repo_dirty`, non-passing status)
+4. Renders a deterministic issue payload with title, labels, and body
+
+### Publication Signals
+
+The publish command detects signals that affect review classification:
+
+- `repo_dirty`: repository had uncommitted changes at completion time
+- `non_passing_status`: run status is not `"passed"`
+
+Runs with signals are marked as **experimental** and receive the `experimental`
+label in the generated issue payload. The `publication.eligible` field in the
+payload is always `true`; reviewers should check for the presence of signals
+to determine if a run is leaderboard-eligible.
+
+### Issue Labels
+
+The publish command generates labels for the GitHub issue:
+
+- `benchmark-result`: classification as a benchmark result submission
+- `schema-v1`: schema version of the run record
+- `status-<slug>`: normalized status (e.g., `status-passed`, `status-failed`)
+- `experimental`: added when signals are present (non-leaderboard-eligible)
+- `repo-dirty`: added when `repo_dirty` is `true`
+
+### Publication Payload
+
+The publish command outputs a structured payload:
+
+- `title`: suggested issue title (e.g., `[passed] demo/py @ abc123def456`)
+- `labels`: array of labels to apply
+- `body`: JSON body string to paste into the issue
+- `body_payload`: structured payload object used to render the body
+- `warnings`: non-blocking warnings for reviewer attention
+- `eligible`: boolean, always `true` (check `signals` for experimental status)
+- `signals`: array of detected publication signals (e.g., `repo_dirty`, `non_passing_status`)
+- `run_record`: the validated and normalized run record
+
+Use the generated body verbatim when creating a benchmark result issue via the
+`Benchmark result` issue template (`.github/ISSUE_TEMPLATE/benchmark-result.md`).
+
+### Review Expectations
+
+**Leaderboard-eligible runs:**
+
+- `status` must be `"passed"`
+- `repo_dirty` must be `false`
+- No publication signals present
+- Labels: `benchmark-result`, `schema-v1`, `status-passed`
+
+**Experimental runs:**
+
+- May have `status` other than `"passed"` or `repo_dirty: true`
+- Marked with `experimental` label
+- Useful for development, regression testing, or exploratory work
+- Not eligible for leaderboard inclusion until re-run under clean conditions
 
 
 ## Logging Mode
