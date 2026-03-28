@@ -7,7 +7,6 @@ Focuses on boundary and regression cases for import compatibility.
 
 import subprocess
 import sys
-import os
 from pathlib import Path
 
 import pytest

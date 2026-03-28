@@ -4,21 +4,19 @@ Adversarial tests for runner/execution_agent.py extraction.
 Focuses on malformed inputs, boundary conditions, validation, and behavior preservation.
 """
 
+import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
-from typing import Any
-
-import sys
-import os
 
 # Ensure we can import from runner/
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.chdir(Path(__file__).resolve().parents[1])
 
-from runner import execution_agent as _execution_agent
+from runner import execution_agent as _execution_agent  # noqa: E402
 
 
 def _make_fake_completedprocess(

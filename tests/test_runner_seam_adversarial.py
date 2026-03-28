@@ -17,7 +17,6 @@ import json
 import subprocess
 import tempfile
 import unittest
-from io import StringIO
 from pathlib import Path
 from unittest import mock
 
@@ -1175,7 +1174,7 @@ cmd = "true"
                 mock.patch.object(bench, "_run_docker_eval", side_effect=fake_eval),
                 mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
             ):
-                rc = bench.main(
+                bench.main(
                     [
                         "run",
                         str(agents_toml),
@@ -1258,7 +1257,7 @@ cmd = "true"
                 mock.patch.object(bench, "_run_docker_eval", side_effect=fake_eval),
                 mock.patch.object(bench, "AGENTS_DEFAULT_PATH", agents_default_path),
             ):
-                rc = bench.main(
+                bench.main(
                     [
                         "run",
                         str(agents_toml),

@@ -10,13 +10,9 @@ These tests attack:
 - Delegation mismatches between bench.py and task_loading_helpers.py
 """
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
-
-import pytest
 
 # Import the helper module directly to test internal functions
 from runner.task_loading_helpers import (

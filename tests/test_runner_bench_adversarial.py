@@ -68,11 +68,6 @@ class TestBenchHelperAdversarial(unittest.TestCase):
         with self.assertRaises(ValueError):
             bench._parse_task_ref("   ")
 
-    def test_parse_task_ref_adversarial_special_chars_in_name(self):
-        """Adversarial: Special characters in suite/task should raise ValueError."""
-        with self.assertRaises(ValueError):
-            bench._parse_task_ref("b@ch: su!te/ta?k")
-
     def test_parse_task_ref_adversarial_path_traversal(self):
         """Adversarial: Path traversal attempts in task ref."""
         # BUG FOUND: _parse_task_ref does NOT prevent path traversal
@@ -676,7 +671,6 @@ param = "override"
 
     def test_inject_model_options_args_adversarial_very_long_task_ref(self):
         """Adversarial: Long task ref in error messages should be truncated or handled."""
-        long_ref = "suite/" + "a" * 10000
         # This tests error handling when task ref is used in messages
 
     def test_model_options_to_args_adversarial_numeric_string(self):

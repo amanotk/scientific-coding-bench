@@ -1,20 +1,19 @@
 """Adversarial tests for runner/results_helpers.py extraction boundaries."""
 
 import json
+import os
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
-from contextlib import redirect_stdout
-
-import sys
-import os
 
 # Ensure runner module is in path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.chdir(str(Path(__file__).resolve().parents[1]))
 
-from runner import results_helpers as rh
+from runner import results_helpers as rh  # noqa: E402
 
 
 class TestResultsHelpers_Adversarial(unittest.TestCase):
@@ -288,8 +287,8 @@ model = "model/日本語"
 
         self.assertIsNotNone(metrics_start, "metrics section not found")
         metric_lines = lines[metrics_start + 1 : metrics_start + 5]
-        self.assertTrue(any("alpha" in l for l in metric_lines))
-        self.assertTrue(any("zebra" in l for l in metric_lines))
+        self.assertTrue(any("alpha" in line for line in metric_lines))
+        self.assertTrue(any("zebra" in line for line in metric_lines))
 
     def test_append_metric_creates_metrics_dict(self):
         """ADVERSARIAL: Metrics dict should be created if missing."""
@@ -453,8 +452,6 @@ another line
     def test_run_started_at_returns_utc_iso8601(self):
         """ADVERSARIAL: Timestamp should be UTC ISO8601 format."""
         ts = rh._run_started_at()
-        import re
-
         pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
         self.assertRegex(ts, pattern)
 

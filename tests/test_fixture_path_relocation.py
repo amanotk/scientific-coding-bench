@@ -17,10 +17,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.test_runner_helpers import (
-    _load_bench_module,
-    bench,
-)
+from tests.test_runner_helpers import bench
 
 
 class TestFixturePathRelocation(unittest.TestCase):
@@ -329,7 +326,6 @@ class TestOldSampleLocationRegression(unittest.TestCase):
             # The sample directory may have other configs (opencode.toml, copilot.toml, etc.)
             # but they should NOT be smoke-specific configs
             for sf in sample_files:
-                content = sf.read_text(encoding="utf-8")
                 # Smoke configs have minimal content - verify they don't exist there
                 # by checking that opencode-smoke.toml isn't in sample/
                 self.assertNotIn("opencode-smoke.toml", sf.name)
