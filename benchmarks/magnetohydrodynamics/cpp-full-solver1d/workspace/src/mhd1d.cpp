@@ -291,6 +291,28 @@ void mc2_slopes(ConstArrayView primitive_cells, ArrayView slopes)
   mc2_slopes_inplace(primitive_cells, slopes);
 }
 
+void reconstruct_mc2_primitive_states(SolverWorkspace& workspace)
+{
+  const ArrayView primitive_cells = workspace.primitive;
+  const ArrayView left_states     = workspace.primitive_left;
+  const ArrayView right_states    = workspace.primitive_right;
+
+  const int lbx = static_cast<int>(workspace.Lbx);
+  const int ubx = static_cast<int>(workspace.Ubx);
+  for (int ix = lbx; ix <= ubx; ++ix) {
+    const std::size_t i = static_cast<std::size_t>(ix);
+    for (std::size_t component = 0; component < kStateWidth; ++component) {
+      const double left_slope = primitive_cells(i, component) -
+                                primitive_cells(static_cast<std::size_t>(ix - 1), component);
+      const double right_slope = primitive_cells(static_cast<std::size_t>(ix + 1), component) -
+                                 primitive_cells(i, component);
+      const double slope         = mc2(left_slope, right_slope);
+      left_states(i, component)  = primitive_cells(i, component) - 0.5 * slope;
+      right_states(i, component) = primitive_cells(i, component) + 0.5 * slope;
+    }
+  }
+}
+
 void reconstruct_mc2_interfaces(ConstArrayView primitive_cells, ArrayView left_states,
                                 ArrayView right_states)
 {

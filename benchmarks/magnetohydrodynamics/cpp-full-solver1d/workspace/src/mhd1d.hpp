@@ -114,6 +114,8 @@ void pad_zero_gradient_ghost_cells(ConstArrayView cells, ArrayView padded);
 
 void mc2_slopes(ConstArrayView primitive_cells, ArrayView slopes);
 
+void reconstruct_mc2_primitive_states(SolverWorkspace& workspace);
+
 void reconstruct_mc2_interfaces(ConstArrayView primitive_cells, ArrayView left_states,
                                 ArrayView right_states);
 
