@@ -1,3 +1,3 @@
-The public C++ workspace skeleton will be added next.
+The public C++ workspace now contains the hardcoded Brio-Wu solver.
 
 Shared workspace docs are already mounted for this benchmark.

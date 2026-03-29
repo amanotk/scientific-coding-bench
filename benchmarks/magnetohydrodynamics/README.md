@@ -22,9 +22,9 @@ This suite contains benchmark tasks for ideal magnetohydrodynamics solvers.
   shared workspace.
 - `cpp-full-solver1d` scores only the interior cells, excluding two
   edge-adjacent cells on each side, against the variables `rho`, `u`, `p`, and
-  `by` using fixture-recorded `abs_l1` and `abs_linf` tolerances. CSV fixture
-  headers keep the magnetic fields lowercase (`by`, `bz`) even when the code
-  and solver notation use `By` and `Bz`.
+  `by` using fixture-recorded `abs_l1` and `abs_linf` tolerances. The solver
+  uses hardcoded Brio-Wu defaults and emits CSV with lowercase magnetic-field
+  headers (`by`, `bz`).
 
 ## Reference credit
 

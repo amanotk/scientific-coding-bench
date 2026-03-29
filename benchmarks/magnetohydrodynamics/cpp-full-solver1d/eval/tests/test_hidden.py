@@ -1,7 +1,12 @@
 import math
 import os
 import subprocess
+import sys
 from pathlib import Path
+
+SHARED_EVAL_ROOT = Path(__file__).resolve().parents[3] / "shared" / "eval"
+if str(SHARED_EVAL_ROOT) not in sys.path:
+    sys.path.insert(0, str(SHARED_EVAL_ROOT))
 
 from mhd1d_shared import (
     CSV_HEADER,
@@ -11,13 +16,17 @@ from mhd1d_shared import (
 
 
 SOLVER_TARGET = "cpp_full_solver1d"
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2] / "workspace"
 
 
 def _build_solver(build_dir: Path) -> Path:
-    subprocess.run(["cmake", "-S", ".", "-B", str(build_dir)], check=True)
+    subprocess.run(
+        ["cmake", "-S", ".", "-B", str(build_dir)], check=True, cwd=WORKSPACE_ROOT
+    )
     subprocess.run(
         ["cmake", "--build", str(build_dir), "--target", SOLVER_TARGET],
         check=True,
+        cwd=WORKSPACE_ROOT,
     )
 
     binary_name = f"{SOLVER_TARGET}.exe" if os.name == "nt" else SOLVER_TARGET
@@ -31,7 +40,7 @@ def test_hidden_brio_wu_cli_matches_fixture(tmp_path: Path) -> None:
     output_csv_path = tmp_path / "brio_wu.csv"
 
     completed = subprocess.run(
-        [str(solver_path), "examples/brio_wu.toml"],
+        [str(solver_path)],
         check=True,
         capture_output=True,
         text=True,

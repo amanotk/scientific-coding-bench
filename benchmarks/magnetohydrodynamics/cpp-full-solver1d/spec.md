@@ -13,7 +13,6 @@ The benchmark contract is fixed around these choices:
 - flux function: HLLD
 - time integration: SSP-RK3
 - boundary conditions: zero-gradient
-- input format: TOML
 - output format: CSV with columns `x,rho,u,v,w,p,by,bz`
 - default problem: Brio-Wu with `gamma = 2` and `Bx = 0.75`
 
@@ -64,46 +63,15 @@ The solver executable is placed at `build/bin/cpp_full_solver1d`.
 ## Usage
 
 ```bash
-./bin/cpp_full_solver1d <input.toml>
+./bin/cpp_full_solver1d
 ```
 
-The solver reads a TOML configuration file and writes CSV output to stdout.
-
-### Example input (Brio-Wu)
-
-```toml
-nx = 400
-x_left = 0.0
-x_right = 1.0
-discontinuity_x = 0.5
-gamma = 2.0
-bx = 0.75
-dt = 5.0e-4
-t_final = 0.1
-
-[left]
-rho = 1.0
-u = 0.0
-v = 0.0
-w = 0.0
-p = 1.0
-by = 1.0
-bz = 0.0
-
-[right]
-rho = 0.125
-u = 0.0
-v = 0.0
-w = 0.0
-p = 0.1
-by = -1.0
-bz = 0.0
-```
+The solver uses hardcoded Brio-Wu defaults and writes CSV output to stdout.
 
 ### Running and saving output
 
 ```bash
-./bin/cpp_full_solver1d examples/brio_wu.toml > solution.csv
+./bin/cpp_full_solver1d > solution.csv
 ```
 
 ## Visualization
@@ -121,9 +89,11 @@ magnetic field (`by`).
 
 ### Core functions (`mhd1d.hpp`)
 
-#### `ProblemConfig make_brio_wu_example()`
+Type aliases used by the API:
 
-Returns a `ProblemConfig` pre-configured with the canonical Brio-Wu parameters.
+- `StateVector = std::array<double, 7>`
+- `ArrayView = std::experimental::mdspan<double, dextents<size_t,2>>`
+- `ConstArrayView = std::experimental::mdspan<const double, dextents<size_t,2>>`
 
 #### `StateVector primitive_to_conservative(const StateVector& primitive, double bx, double gamma)`
 
@@ -147,14 +117,30 @@ Converts a conservative state vector to primitive form.
 
 **Returns:** 7-component primitive state
 
-#### `std::pair<std::vector<StateVector>, std::vector<StateVector>> reconstruct_mc2_interfaces(const std::vector<StateVector>& primitive_cells)`
+#### `void pad_zero_gradient_ghost_cells(ConstArrayView cells, ArrayView padded)`
 
-Performs MC2 slope-limited reconstruction at cell interfaces.
+Fills the padded array with two zero-gradient ghost cells on each side.
 
 **Parameters:**
-- `primitive_cells`: Cell-centered primitive states
+- `cells`: interior cell-centered states with shape `(nx, 7)`
+- `padded`: output with shape `(nx + 4, 7)`
 
-**Returns:** Pair of left and right interface states
+#### `void mc2_slopes(ConstArrayView primitive_cells, ArrayView slopes)`
+
+Computes MC2-limited slopes for primitive variables.
+
+**Parameters:**
+- `primitive_cells`: primitive states with shape `(nx, 7)`
+- `slopes`: output slopes with shape `(nx, 7)`
+
+#### `void reconstruct_mc2_interfaces(ConstArrayView primitive_cells, ArrayView left_states, ArrayView right_states)`
+
+Performs MC2 reconstruction at interfaces.
+
+**Parameters:**
+- `primitive_cells`: primitive states with shape `(nx, 7)`
+- `left_states`: left interface states with shape `(nx - 1, 7)`
+- `right_states`: right interface states with shape `(nx - 1, 7)`
 
 #### `StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector& right, double bx, double gamma)`
 
@@ -168,27 +154,41 @@ Computes the HLLD numerical flux given left and right primitive states.
 
 **Returns:** Numerical flux vector
 
-#### `std::vector<StateVector> run_full_simulation(const ProblemConfig& problem)`
+#### `void compute_semidiscrete_rhs(ConstArrayView conservative_cells, ArrayView rhs, double dx, double bx = 0.75, double gamma = 2.0)`
 
-Runs the complete simulation from initial conditions to `t_final`.
+Computes the semidiscrete RHS with an explicit cell width.
 
 **Parameters:**
-- `problem`: Problem configuration with initial states and parameters
+- `conservative_cells`: conservative states with shape `(nx, 7)`
+- `rhs`: output RHS with shape `(nx, 7)`
+- `dx`: cell width
+- `bx`: constant `Bx`
+- `gamma`: adiabatic index
 
-**Returns:** Final primitive state profile at `t_final`
-
-#### `std::vector<StateVector> ssp_rk3_step(const std::vector<StateVector>& conservative_cells, double dt, double dx, double bx, double gamma)`
+#### `void ssp_rk3_step(ConstArrayView conservative_cells, ArrayView output, double dt, double dx, double bx = 0.75, double gamma = 2.0)`
 
 Performs one SSP-RK3 time step.
 
 **Parameters:**
-- `conservative_cells`: Current conservative state profile
-- `dt`: Time step size
-- `dx`: Cell width
-- `bx`: Constant x-component of magnetic field
-- `gamma`: Adiabatic index
+- `conservative_cells`: input conservative states with shape `(nx, 7)`
+- `output`: output conservative states with shape `(nx, 7)`
+- `dt`: time step
+- `dx`: cell width
+- `bx`: constant `Bx`
+- `gamma`: adiabatic index
 
-**Returns:** Updated conservative state profile
+#### `void evolve_ssp_rk3_fixed_dt(ConstArrayView conservative_cells, ArrayView output, double t_final, double dt, double dx, double bx = 0.75, double gamma = 2.0)`
+
+Runs repeated SSP-RK3 updates with fixed `dt` until `t_final`.
+
+**Parameters:**
+- `conservative_cells`: input conservative states with shape `(nx, 7)`
+- `output`: output conservative states with shape `(nx, 7)`
+- `t_final`: final time
+- `dt`: fixed time step (final step is clipped to hit `t_final`)
+- `dx`: cell width
+- `bx`: constant `Bx`
+- `gamma`: adiabatic index
 
 ## Evaluation
 

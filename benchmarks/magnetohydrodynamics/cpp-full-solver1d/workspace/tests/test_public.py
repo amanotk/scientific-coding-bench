@@ -6,19 +6,28 @@ from pathlib import Path
 
 
 PUBLIC_TEST_TARGET = "cpp_full_solver1d_public_tests"
-GOLDEN_CSV_PATH = Path("tests/data/brio_wu_golden.csv")
+GOLDEN_CSV_PATH = Path(__file__).resolve().parents[1] / "tests/data/brio_wu_golden.csv"
 GOLDEN_TOLERANCE = 1.0e-12
+WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _build_public_tests() -> Path:
-    subprocess.run(["cmake", "-S", ".", "-B", "build"], check=True)
+    subprocess.run(["cmake", "-S", ".", "-B", "build"], check=True, cwd=WORKSPACE_ROOT)
     subprocess.run(
-        ["cmake", "--build", "build", "--target", PUBLIC_TEST_TARGET],
+        [
+            "cmake",
+            "--build",
+            "build",
+            "--target",
+            "cpp_full_solver1d",
+            PUBLIC_TEST_TARGET,
+        ],
         check=True,
+        cwd=WORKSPACE_ROOT,
     )
 
     binary_name = f"{PUBLIC_TEST_TARGET}.exe" if os.name == "nt" else PUBLIC_TEST_TARGET
-    executable_path = Path("build/tests") / binary_name
+    executable_path = WORKSPACE_ROOT / "build/tests" / binary_name
     assert executable_path.exists()
     return executable_path
 
@@ -31,11 +40,11 @@ def test_public_brio_wu_cli_matches_reference_grid() -> None:
     _build_public_tests()
 
     solver_name = "cpp_full_solver1d.exe" if os.name == "nt" else "cpp_full_solver1d"
-    solver_path = Path("build/bin") / solver_name
+    solver_path = WORKSPACE_ROOT / "build/bin" / solver_name
     assert solver_path.exists()
 
     completed = subprocess.run(
-        [str(solver_path), "examples/brio_wu.toml"],
+        [str(solver_path)],
         check=True,
         capture_output=True,
         text=True,
