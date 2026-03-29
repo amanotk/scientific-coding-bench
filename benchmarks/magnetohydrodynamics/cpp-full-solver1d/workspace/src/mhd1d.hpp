@@ -28,33 +28,31 @@ struct SolverWorkspace {
         gamma(gamma), bx(bx)
   {
     const std::size_t Nx_total    = Nx + 2U * kGhostWidth;
-    const std::size_t interface_n = Nx_total - 1U;
     const std::size_t padded_size = Nx_total * kStateWidth;
-    const std::size_t state_size  = Nx * kStateWidth;
 
     buf_conservative.resize(padded_size);
     buf_primitive.resize(padded_size);
     buf_slopes.resize(padded_size);
-    buf_primitive_left.resize(interface_n * kStateWidth);
-    buf_primitive_right.resize(interface_n * kStateWidth);
-    buf_rhs1.resize(state_size);
-    buf_rhs2.resize(state_size);
-    buf_rhs3.resize(state_size);
-    buf_stage1.resize(state_size);
-    buf_stage2.resize(state_size);
-    buf_stage3.resize(state_size);
+    buf_primitive_left.resize(padded_size);
+    buf_primitive_right.resize(padded_size);
+    buf_rhs1.resize(padded_size);
+    buf_rhs2.resize(padded_size);
+    buf_rhs3.resize(padded_size);
+    buf_stage1.resize(padded_size);
+    buf_stage2.resize(padded_size);
+    buf_stage3.resize(padded_size);
 
     conservative    = ArrayView(buf_conservative.data(), Nx_total, kStateWidth);
     primitive       = ArrayView(buf_primitive.data(), Nx_total, kStateWidth);
     slopes          = ArrayView(buf_slopes.data(), Nx_total, kStateWidth);
-    primitive_left  = ArrayView(buf_primitive_left.data(), interface_n, kStateWidth);
-    primitive_right = ArrayView(buf_primitive_right.data(), interface_n, kStateWidth);
-    rhs1            = ArrayView(buf_rhs1.data(), Nx, kStateWidth);
-    rhs2            = ArrayView(buf_rhs2.data(), Nx, kStateWidth);
-    rhs3            = ArrayView(buf_rhs3.data(), Nx, kStateWidth);
-    stage1          = ArrayView(buf_stage1.data(), Nx, kStateWidth);
-    stage2          = ArrayView(buf_stage2.data(), Nx, kStateWidth);
-    stage3          = ArrayView(buf_stage3.data(), Nx, kStateWidth);
+    primitive_left  = ArrayView(buf_primitive_left.data(), Nx_total, kStateWidth);
+    primitive_right = ArrayView(buf_primitive_right.data(), Nx_total, kStateWidth);
+    rhs1            = ArrayView(buf_rhs1.data(), Nx_total, kStateWidth);
+    rhs2            = ArrayView(buf_rhs2.data(), Nx_total, kStateWidth);
+    rhs3            = ArrayView(buf_rhs3.data(), Nx_total, kStateWidth);
+    stage1          = ArrayView(buf_stage1.data(), Nx_total, kStateWidth);
+    stage2          = ArrayView(buf_stage2.data(), Nx_total, kStateWidth);
+    stage3          = ArrayView(buf_stage3.data(), Nx_total, kStateWidth);
   }
 
   using ArrayView = stdex::mdspan<double, stdex::dextents<std::size_t, 2>>;

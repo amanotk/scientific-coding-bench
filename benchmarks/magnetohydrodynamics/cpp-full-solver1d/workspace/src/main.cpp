@@ -28,8 +28,11 @@ int main()
 {
   mhd1d::SolverWorkspace workspace(kBrioWuNx, kBrioWuXLeft, kBrioWuXRight, kBrioWuDt, kBrioWuTFinal,
                                    kBrioWuGamma, kBrioWuBx);
-  const mhd1d::ArrayView primitive_cells(workspace.buf_primitive.data(), workspace.Nx,
-                                         mhd1d::kStateWidth);
+  const std::size_t      physical_offset = mhd1d::kGhostWidth * mhd1d::kStateWidth;
+  const mhd1d::ArrayView primitive_cells(workspace.buf_primitive.data() + physical_offset,
+                                         workspace.Nx, mhd1d::kStateWidth);
+  const mhd1d::ArrayView conservative_cells(workspace.buf_stage1.data() + physical_offset,
+                                            workspace.Nx, mhd1d::kStateWidth);
   const std::vector<double> centers =
       mhd1d::cell_centers(workspace.Nx, workspace.x_left, workspace.x_right);
 
@@ -41,13 +44,13 @@ int main()
     }
   }
 
-  mhd1d::primitive_profile_to_conservative(primitive_cells, workspace.stage1, workspace.bx,
+  mhd1d::primitive_profile_to_conservative(primitive_cells, conservative_cells, workspace.bx,
                                            workspace.gamma);
 
-  mhd1d::evolve_ssp_rk3_fixed_dt(workspace.stage1, workspace.stage1, workspace.t_final,
+  mhd1d::evolve_ssp_rk3_fixed_dt(conservative_cells, conservative_cells, workspace.t_final,
                                  workspace.dt, workspace.dx, workspace.bx, workspace.gamma);
 
-  mhd1d::conservative_profile_to_primitive(workspace.stage1, primitive_cells, workspace.bx,
+  mhd1d::conservative_profile_to_primitive(conservative_cells, primitive_cells, workspace.bx,
                                            workspace.gamma);
 
   std::cout << "x,rho,u,v,w,p,by,bz\n";

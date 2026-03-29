@@ -17,6 +17,23 @@ constexpr int    kGhost   = static_cast<int>(kGhostWidth);
 using ArrayView      = stdex::mdspan<double, stdex::dextents<std::size_t, 2>>;
 using ConstArrayView = stdex::mdspan<const double, stdex::dextents<std::size_t, 2>>;
 
+double sign(double value)
+{
+  if (value > 0.0) {
+    return 1.0;
+  }
+  if (value < 0.0) {
+    return -1.0;
+  }
+  return 0.0;
+}
+
+double mc2(double a, double b)
+{
+  return 0.5 * (sign(a) + sign(b)) *
+         std::min({2.0 * std::abs(a), 2.0 * std::abs(b), 0.5 * std::abs(a + b)});
+}
+
 double minmod3(double first, double second, double third)
 {
   if (first * second > 0.0 && first * third > 0.0) {
@@ -97,11 +114,7 @@ void mc2_slopes_inplace(ConstArrayView primitive_cells, ArrayView slopes)
                                      primitive_cells(static_cast<std::size_t>(ix - 1), component);
       const double right_difference = primitive_cells(static_cast<std::size_t>(ix + 1), component) -
                                       primitive_cells(x, component);
-      const double centered_difference =
-          0.5 * (primitive_cells(static_cast<std::size_t>(ix + 1), component) -
-                 primitive_cells(static_cast<std::size_t>(ix - 1), component));
-      slopes(x, component) =
-          minmod3(2.0 * left_difference, centered_difference, 2.0 * right_difference);
+      slopes(x, component) = mc2(left_difference, right_difference);
     }
   }
 }
