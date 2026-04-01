@@ -7,12 +7,9 @@
 namespace
 {
 
-constexpr std::size_t        kBrioWuNx             = 400;
-constexpr double             kBrioWuDiscontinuityX = 0.5;
-constexpr double             kBrioWuDt             = 5.0e-4;
-constexpr double             kBrioWuTFinal         = 0.1;
-constexpr double             kBrioWuGamma          = 2.0;
-constexpr double             kBrioWuBx             = 0.75;
+constexpr std::size_t        kBrioWuNx    = 400;
+constexpr double             kBrioWuGamma = 2.0;
+constexpr double             kBrioWuBx    = 0.75;
 constexpr mhd1d::StateVector kBrioWuLeftPrimitive{
     1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0,
 };
@@ -22,29 +19,35 @@ constexpr mhd1d::StateVector kBrioWuRightPrimitive{
 
 } // namespace
 
-void initialize(mhd1d::SolverWorkspace& workspace)
+mhd1d::SolverWorkspace initialize(std::size_t nx, double gamma, double bx,
+                                  const mhd1d::StateVector& left_state,
+                                  const mhd1d::StateVector& right_state)
 {
+  mhd1d::SolverWorkspace workspace(nx, gamma, bx);
+
   for (std::size_t index = workspace.Lbx; index <= workspace.Ubx; ++index) {
     const std::size_t         center_index = index - workspace.Lbx;
-    const mhd1d::StateVector& state        = (workspace.x(center_index) < kBrioWuDiscontinuityX)
-                                                 ? kBrioWuLeftPrimitive
-                                                 : kBrioWuRightPrimitive;
+    const mhd1d::StateVector& state = (workspace.x(center_index) < 0.5) ? left_state : right_state;
     for (std::size_t component = 0; component < mhd1d::kStateWidth; ++component) {
       workspace.primitive(index, component) = state[component];
     }
   }
+
+  mhd1d::set_boundary(workspace.primitive, workspace.Lbx, workspace.Ubx);
+  mhd1d::primitive_profile_to_conservative(workspace.primitive, workspace.conservative, bx, gamma);
+
+  return workspace;
 }
 
 int main()
 {
-  mhd1d::SolverWorkspace workspace(kBrioWuNx, kBrioWuGamma, kBrioWuBx);
+  const double delt = 5.0e-4;
+  const double tmax = 0.1;
 
-  initialize(workspace);
+  auto workspace =
+      initialize(kBrioWuNx, kBrioWuGamma, kBrioWuBx, kBrioWuLeftPrimitive, kBrioWuRightPrimitive);
 
-  mhd1d::set_boundary(workspace.primitive, workspace.Lbx, workspace.Ubx);
-  mhd1d::primitive_profile_to_conservative(workspace.primitive, workspace.conservative,
-                                           workspace.bx, workspace.gamma);
-  mhd1d::evolve_ssp_rk3(workspace, kBrioWuDt, kBrioWuTFinal);
+  mhd1d::evolve_ssp_rk3(workspace, delt, tmax);
 
   std::cout << "x,rho,u,v,w,p,by,bz\n";
   std::cout << std::setprecision(17);

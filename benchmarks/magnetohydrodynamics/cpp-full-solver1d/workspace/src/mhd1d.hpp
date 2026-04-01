@@ -47,8 +47,8 @@ struct SolverWorkspace {
     flux            = ArrayView2D(buf_flux.data(), Nx_total, kStateWidth);
     x               = ArrayView1D(buf_x.data(), Nx_total);
 
-    for (std::size_t i = 0; i < Nx_total; ++i) {
-      x(i) = (static_cast<double>(i) + 0.5) * dx;
+    for (std::size_t ix = Lbx; ix <= Ubx; ++ix) {
+      x(ix) = (static_cast<double>(ix - Lbx) + 0.5) * dx;
     }
   }
 
