@@ -1,22 +1,18 @@
 import math
 import os
 import subprocess
-import sys
 from pathlib import Path
-
-SHARED_EVAL_ROOT = Path(__file__).resolve().parents[3] / "shared" / "eval"
-if str(SHARED_EVAL_ROOT) not in sys.path:
-    sys.path.insert(0, str(SHARED_EVAL_ROOT))
-
-from mhd1d_shared import (
-    CSV_HEADER,
-    compare_mhd1d_csv_against_fixture,
-    load_mhd1d_csv_profile,
-)
-
 
 SOLVER_TARGET = "cpp_full_solver1d"
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2] / "workspace"
+REFERENCE_CSV_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "shared"
+    / "eval"
+    / "fixtures"
+    / "mhd1d"
+    / "brio_wu_reference.csv"
+)
 
 
 def _build_solver(build_dir: Path) -> Path:
@@ -40,19 +36,22 @@ def test_hidden_brio_wu_cli_matches_fixture(tmp_path: Path) -> None:
     output_csv_path = tmp_path / "brio_wu.csv"
 
     completed = subprocess.run(
-        [str(solver_path)],
+        [str(solver_path), "200"],
         check=True,
         capture_output=True,
         text=True,
     )
     output_csv_path.write_text(completed.stdout, encoding="utf-8")
 
-    profile = load_mhd1d_csv_profile(output_csv_path)
-    assert profile.header == CSV_HEADER
+    output_rows = output_csv_path.read_text(encoding="utf-8").splitlines()
+    reference_rows = REFERENCE_CSV_PATH.read_text(encoding="utf-8").splitlines()
 
-    comparison = compare_mhd1d_csv_against_fixture(output_csv_path)
-    assert comparison.passed
+    assert len(output_rows) == len(reference_rows) + 1
+    assert output_rows[1:] == reference_rows
 
     for column_name in ("v", "w", "bz"):
-        for row in profile.rows:
-            assert math.isfinite(row[column_name])
+        for row in output_rows[1:]:
+            values = row.split(",")
+            assert len(values) == 8
+            value = float(values[{"v": 3, "w": 4, "bz": 6}[column_name]])
+            assert math.isfinite(value)

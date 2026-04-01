@@ -2,7 +2,7 @@
 """Plot a Brio-Wu solver CSV and save an image.
 
 Usage:
-    python scripts/plot_solution.py [path/to/solution.csv] [path/to/output.png]
+    python plot_solution.py [path/to/solution.csv] [path/to/output.png]
 
 If no path is provided, the script looks for ``solution.csv`` in the current
 working directory and writes ``solution.png`` there.
@@ -49,16 +49,29 @@ def parse_args() -> argparse.Namespace:
 
 def load_columns(csv_path: Path) -> dict[str, list[float]]:
     with csv_path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        if reader.fieldnames != EXPECTED_FIELDS:
-            raise ValueError(
-                f"expected CSV header x,rho,u,v,w,p,by,bz; got {reader.fieldnames!r}"
-            )
+        reader = csv.reader(handle)
+        try:
+            first_row = next(reader)
+        except StopIteration as exc:
+            raise ValueError(f"{csv_path} is empty") from exc
+
+        if first_row == EXPECTED_FIELDS:
+            rows = reader
+        else:
+            if len(first_row) != len(EXPECTED_FIELDS):
+                raise ValueError(
+                    f"expected {len(EXPECTED_FIELDS)} CSV columns; got {len(first_row)}"
+                )
+            rows = [first_row, *reader]
 
         columns: dict[str, list[float]] = {field: [] for field in EXPECTED_FIELDS}
-        for row in reader:
-            for field in EXPECTED_FIELDS:
-                columns[field].append(float(row[field]))
+        for raw_row in rows:
+            if len(raw_row) != len(EXPECTED_FIELDS):
+                raise ValueError(
+                    f"expected {len(EXPECTED_FIELDS)} CSV columns; got {len(raw_row)}"
+                )
+            for field, raw_value in zip(EXPECTED_FIELDS, raw_row, strict=True):
+                columns[field].append(float(raw_value))
 
     return columns
 

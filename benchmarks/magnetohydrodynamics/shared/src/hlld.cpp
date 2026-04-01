@@ -3,37 +3,11 @@
 #include <algorithm>
 #include <cmath>
 
-namespace
-{
-
-constexpr double epsilon = 1.0e-40;
-
-double sign_unit(double x)
-{
-  return (x >= 0.0) ? 1.0 : -1.0;
-}
-
-StateVector primitive_from_conservative(const StateVector& state, double bx, double gamma)
-{
-  const double rho = state[0];
-  const double u   = state[1] / rho;
-  const double v   = state[2] / rho;
-  const double w   = state[3] / rho;
-  const double by  = state[5];
-  const double bz  = state[6];
-
-  const double kinetic  = 0.5 * rho * (u * u + v * v + w * w);
-  const double magnetic = 0.5 * (bx * bx + by * by + bz * bz);
-  const double p        = (gamma - 1.0) * (state[4] - kinetic - magnetic);
-
-  return StateVector{rho, u, v, w, p, by, bz};
-}
-
-} // namespace
-
 StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector& right, double bx,
                                      double gamma)
 {
+  constexpr double epsilon = 1.0e-40;
+
   const double rol = left[0];
   const double vxl = left[1];
   const double vyl = left[2];
@@ -110,7 +84,7 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
   const double ptst  = (rosdr * ptl - rosdl * ptr + rosdl * rosdr * (vxr - vxl)) * temp;
 
   const double temp_fst_l = rosdl * sdml - bxsq;
-  const double sign1_l    = sign_unit(std::abs(temp_fst_l) - epsilon);
+  const double sign1_l    = std::copysign(1.0, std::abs(temp_fst_l) - epsilon);
   const double maxs1_l    = std::max(0.0, sign1_l);
   const double mins1_l    = std::min(0.0, sign1_l);
   const double itf_l      = 1.0 / (temp_fst_l + mins1_l);
@@ -134,7 +108,7 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
                        mins1_l * eel;
 
   const double temp_fst_r = rosdr * sdmr - bxsq;
-  const double sign1_r    = sign_unit(std::abs(temp_fst_r) - epsilon);
+  const double sign1_r    = std::copysign(1.0, std::abs(temp_fst_r) - epsilon);
   const double maxs1_r    = std::max(0.0, sign1_r);
   const double mins1_r    = std::min(0.0, sign1_r);
   const double itf_r      = 1.0 / (temp_fst_r + mins1_r);
@@ -162,8 +136,8 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
   const double abbx     = std::abs(bxs);
   const double slst     = sm - abbx / sqrtrol;
   const double srst     = sm + abbx / sqrtror;
-  const double signbx   = sign_unit(bxs);
-  const double sign1_b  = sign_unit(abbx - epsilon);
+  const double signbx   = std::copysign(1.0, bxs);
+  const double sign1_b  = std::copysign(1.0, abbx - epsilon);
   const double maxs1_b  = std::max(0.0, sign1_b);
   const double mins1_b  = -std::min(0.0, sign1_b);
   const double invsumro = maxs1_b / (sqrtrol + sqrtror);
@@ -201,7 +175,7 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
   const double eeldst   = eelst - sqrtrol * signbx * (vdbstl - temp_dst) * maxs1_b;
   const double eerdst   = eerst + sqrtror * signbx * (vdbstr - temp_dst) * maxs1_b;
 
-  const double sign1       = sign_unit(sm);
+  const double sign1       = std::copysign(1.0, sm);
   const double maxs1       = std::max(0.0, sign1);
   const double mins1       = -std::min(0.0, sign1);
   const double msl         = std::min(sl, 0.0);
@@ -227,11 +201,4 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
       (fql[6] - msl * bzl - bzlst * temp_flux_l + bzldst * mslst) * maxs1 +
           (fqr[6] - msr * bzr - bzrst * temp_flux_r + bzrdst * msrst) * mins1,
   };
-}
-
-StateVector hlld_flux_from_conservative(const StateVector& left, const StateVector& right,
-                                        double bx, double gamma)
-{
-  return hlld_flux_from_primitive(primitive_from_conservative(left, bx, gamma),
-                                  primitive_from_conservative(right, bx, gamma), bx, gamma);
 }

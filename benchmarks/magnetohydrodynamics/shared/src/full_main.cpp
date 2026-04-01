@@ -1,13 +1,13 @@
-#include "mhd1d.hpp"
+#include "full_mhd1d.hpp"
 
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
 
-constexpr int                DefaultNx = 100;
-constexpr double             Gamma     = 2.0;
-constexpr double             Bx        = 0.75;
+constexpr int                Nx    = 100;
+constexpr double             Gamma = 2.0;
+constexpr double             Bx    = 0.75;
 constexpr mhd1d::StateVector LeftPrimitive{
     1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0,
 };
@@ -18,7 +18,7 @@ constexpr mhd1d::StateVector RightPrimitive{
 int parse_nx(int argc, char** argv)
 {
   if (argc <= 1) {
-    return DefaultNx;
+    return Nx;
   }
 
   char*      end    = nullptr;
@@ -50,7 +50,6 @@ mhd1d::SolverWorkspace initialize(int nx, double gamma, double bx,
 
 void write_csv(const mhd1d::SolverWorkspace& workspace, std::ostream& os)
 {
-  os << "x,rho,u,v,w,p,by,bz\n";
   os << std::setprecision(17);
   for (int ix = workspace.Lbx; ix <= workspace.Ubx; ++ix) {
     os << workspace.x(ix) << ',' << workspace.up(ix, 0) << ',' << workspace.up(ix, 1) << ','

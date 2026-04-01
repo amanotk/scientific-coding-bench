@@ -9,8 +9,6 @@ This suite contains benchmark tasks for ideal magnetohydrodynamics solvers.
 - `cpp-hlld/`: C++ HLLD approximate Riemann solver task.
 - `cpp-full-solver1d/`: C++ full 1D ideal MHD solver (Brio-Wu benchmark).
 - `shared/eval/README.md`: hidden-eval contract for shared MHD scoring assets.
-- `shared/eval/mhd1d_reference.py`: hidden reference generator for the 1D
-  full-solver task.
 - `shared/eval/mhd1d_shared.py`: shared helpers for CSV loading, score
   windows, and comparison metadata.
 - `shared/eval/fixtures/mhd1d/`: hidden fixtures for `cpp-full-solver1d`.
