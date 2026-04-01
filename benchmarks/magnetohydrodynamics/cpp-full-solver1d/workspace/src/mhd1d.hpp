@@ -1,7 +1,6 @@
 #pragma once
 
 #include <array>
-#include <cstddef>
 #include <utility>
 #include <vector>
 
@@ -12,74 +11,74 @@ namespace mhd1d
 
 namespace stdex = std::experimental;
 
-constexpr std::size_t kStateWidth = 7;
-constexpr std::size_t kGhostWidth = 2;
+constexpr int kStateWidth = 7;
+constexpr int kGhostWidth = 1;
 
 using StateVector = std::array<double, kStateWidth>;
-using ArrayView1D = stdex::mdspan<double, stdex::dextents<std::size_t, 1>>;
-using ArrayView2D = stdex::mdspan<double, stdex::dextents<std::size_t, 2>>;
+using ArrayView1D = stdex::mdspan<double, stdex::dextents<int, 1>>;
+using ArrayView2D = stdex::mdspan<double, stdex::dextents<int, 2>>;
 
 struct SolverWorkspace {
-  explicit SolverWorkspace(std::size_t nx, double gamma, double bx)
-      : Nx(nx), Lbx(kGhostWidth), Ubx(kGhostWidth + nx - 1U),
-        dx(nx == 0U ? 0.0 : 1.0 / static_cast<double>(nx)), gamma(gamma), bx(bx)
+  struct Storage {
+    explicit Storage(int nx_total)
+        : conservative(nx_total * kStateWidth), primitive(nx_total * kStateWidth),
+          primitive_left(nx_total * kStateWidth), primitive_right(nx_total * kStateWidth),
+          rhs(nx_total * kStateWidth), prev(nx_total * kStateWidth), flux(nx_total * kStateWidth),
+          x(nx_total)
+    {
+    }
+
+    std::vector<double> conservative;
+    std::vector<double> primitive;
+    std::vector<double> primitive_left;
+    std::vector<double> primitive_right;
+    std::vector<double> rhs;
+    std::vector<double> prev;
+    std::vector<double> flux;
+    std::vector<double> x;
+  };
+
+  explicit SolverWorkspace(int nx, double gamma, double bx)
+      : Nx(nx), Lbx(kGhostWidth), Ubx(kGhostWidth + nx - 1),
+        dx(nx == 0 ? 0.0 : 1.0 / static_cast<double>(nx)), gamma(gamma), bx(bx),
+        storage(Nx + 2 * kGhostWidth)
   {
-    const std::size_t Nx_total    = Nx + 2U * kGhostWidth;
-    const std::size_t padded_size = Nx_total * kStateWidth;
+    init_views(Nx + 2 * kGhostWidth);
 
-    buf_conservative.resize(padded_size);
-    buf_primitive.resize(padded_size);
-    buf_slopes.resize(padded_size);
-    buf_primitive_left.resize(padded_size);
-    buf_primitive_right.resize(padded_size);
-    buf_rhs1.resize(padded_size);
-    buf_stage1.resize(padded_size);
-    buf_flux.resize(padded_size);
-    buf_x.resize(Nx_total);
-
-    conservative    = ArrayView2D(buf_conservative.data(), Nx_total, kStateWidth);
-    primitive       = ArrayView2D(buf_primitive.data(), Nx_total, kStateWidth);
-    slopes          = ArrayView2D(buf_slopes.data(), Nx_total, kStateWidth);
-    primitive_left  = ArrayView2D(buf_primitive_left.data(), Nx_total, kStateWidth);
-    primitive_right = ArrayView2D(buf_primitive_right.data(), Nx_total, kStateWidth);
-    rhs1            = ArrayView2D(buf_rhs1.data(), Nx_total, kStateWidth);
-    stage1          = ArrayView2D(buf_stage1.data(), Nx_total, kStateWidth);
-    flux            = ArrayView2D(buf_flux.data(), Nx_total, kStateWidth);
-    x               = ArrayView1D(buf_x.data(), Nx_total);
-
-    for (std::size_t ix = Lbx; ix <= Ubx; ++ix) {
+    for (int ix = Lbx; ix <= Ubx; ++ix) {
       x(ix) = (static_cast<double>(ix - Lbx) + 0.5) * dx;
     }
   }
 
-  std::size_t Nx;  // number of grids for the physical domain (excluding the ghost cells)
-  std::size_t Lbx; // lower bound of the physical domain in padded indexing
-  std::size_t Ubx; // upper bound of the physical domain in padded indexing
-  double      dx;
-  double      gamma;
-  double      bx;
+  int    Nx;
+  int    Lbx;
+  int    Ubx;
+  double dx;
+  double gamma;
+  double bx;
 
-  // buffer
-  std::vector<double> buf_conservative;
-  std::vector<double> buf_primitive;
-  std::vector<double> buf_slopes;
-  std::vector<double> buf_primitive_left;
-  std::vector<double> buf_primitive_right;
-  std::vector<double> buf_rhs1;
-  std::vector<double> buf_stage1;
-  std::vector<double> buf_flux;
-  std::vector<double> buf_x;
+  Storage storage;
 
-  // view
   ArrayView2D conservative;
   ArrayView2D primitive;
-  ArrayView2D slopes;
   ArrayView2D primitive_left;
   ArrayView2D primitive_right;
-  ArrayView2D rhs1;
-  ArrayView2D stage1;
+  ArrayView2D rhs;
+  ArrayView2D prev;
   ArrayView2D flux;
   ArrayView1D x;
+
+  void init_views(int nx_total)
+  {
+    conservative    = ArrayView2D(storage.conservative.data(), nx_total, kStateWidth);
+    primitive       = ArrayView2D(storage.primitive.data(), nx_total, kStateWidth);
+    primitive_left  = ArrayView2D(storage.primitive_left.data(), nx_total, kStateWidth);
+    primitive_right = ArrayView2D(storage.primitive_right.data(), nx_total, kStateWidth);
+    rhs             = ArrayView2D(storage.rhs.data(), nx_total, kStateWidth);
+    prev            = ArrayView2D(storage.prev.data(), nx_total, kStateWidth);
+    flux            = ArrayView2D(storage.flux.data(), nx_total, kStateWidth);
+    x               = ArrayView1D(storage.x.data(), nx_total);
+  }
 };
 
 StateVector primitive_to_conservative(const StateVector& primitive, double bx, double gamma);
@@ -92,7 +91,9 @@ void primitive_profile_to_conservative(ArrayView2D primitive_cells, ArrayView2D 
 StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector& right, double bx,
                                      double gamma);
 
-void set_boundary(ArrayView2D u, std::size_t lbx, std::size_t ubx);
+void set_left_boundary(ArrayView2D dst, ArrayView2D src, int lbx);
+
+void set_right_boundary(ArrayView2D dst, ArrayView2D src, int ubx);
 
 void reconstruct_mc2(SolverWorkspace& workspace);
 

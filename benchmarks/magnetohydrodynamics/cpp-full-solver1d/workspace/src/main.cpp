@@ -4,39 +4,46 @@
 #include <iostream>
 #include <vector>
 
-namespace
-{
-
-constexpr std::size_t        kBrioWuNx    = 400;
-constexpr double             kBrioWuGamma = 2.0;
-constexpr double             kBrioWuBx    = 0.75;
-constexpr mhd1d::StateVector kBrioWuLeftPrimitive{
+constexpr int                Nx    = 400;
+constexpr double             Gamma = 2.0;
+constexpr double             Bx    = 0.75;
+constexpr mhd1d::StateVector LeftPrimitive{
     1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0,
 };
-constexpr mhd1d::StateVector kBrioWuRightPrimitive{
+constexpr mhd1d::StateVector RightPrimitive{
     0.125, 0.0, 0.0, 0.0, 0.1, -1.0, 0.0,
 };
 
-} // namespace
-
-mhd1d::SolverWorkspace initialize(std::size_t nx, double gamma, double bx,
+mhd1d::SolverWorkspace initialize(int nx, double gamma, double bx,
                                   const mhd1d::StateVector& left_state,
                                   const mhd1d::StateVector& right_state)
 {
   mhd1d::SolverWorkspace workspace(nx, gamma, bx);
 
-  for (std::size_t index = workspace.Lbx; index <= workspace.Ubx; ++index) {
-    const std::size_t         center_index = index - workspace.Lbx;
-    const mhd1d::StateVector& state = (workspace.x(center_index) < 0.5) ? left_state : right_state;
-    for (std::size_t component = 0; component < mhd1d::kStateWidth; ++component) {
-      workspace.primitive(index, component) = state[component];
+  for (int ix = workspace.Lbx; ix <= workspace.Ubx; ++ix) {
+    const mhd1d::StateVector& state = (workspace.x(ix) < 0.5) ? left_state : right_state;
+    for (int component = 0; component < mhd1d::kStateWidth; ++component) {
+      workspace.primitive(ix, component) = state[component];
     }
   }
 
-  mhd1d::set_boundary(workspace.primitive, workspace.Lbx, workspace.Ubx);
+  mhd1d::set_left_boundary(workspace.primitive, workspace.primitive, workspace.Lbx);
+  mhd1d::set_right_boundary(workspace.primitive, workspace.primitive, workspace.Ubx);
   mhd1d::primitive_profile_to_conservative(workspace.primitive, workspace.conservative, bx, gamma);
 
   return workspace;
+}
+
+void write_csv(const mhd1d::SolverWorkspace& workspace, std::ostream& os)
+{
+  os << "x,rho,u,v,w,p,by,bz\n";
+  os << std::setprecision(17);
+  for (int ix = workspace.Lbx; ix <= workspace.Ubx; ++ix) {
+    os << workspace.x(ix) << ',' << workspace.primitive(ix, 0) << ',' << workspace.primitive(ix, 1)
+       << ',' << workspace.primitive(ix, 2) << ',' << workspace.primitive(ix, 3) << ','
+       << workspace.primitive(ix, 4) << ',' << workspace.primitive(ix, 5) << ','
+       << workspace.primitive(ix, 6) << '\n';
+  }
 }
 
 int main()
@@ -44,20 +51,11 @@ int main()
   const double delt = 5.0e-4;
   const double tmax = 0.1;
 
-  auto workspace =
-      initialize(kBrioWuNx, kBrioWuGamma, kBrioWuBx, kBrioWuLeftPrimitive, kBrioWuRightPrimitive);
+  auto workspace = initialize(Nx, Gamma, Bx, LeftPrimitive, RightPrimitive);
 
   mhd1d::evolve_ssp_rk3(workspace, delt, tmax);
 
-  std::cout << "x,rho,u,v,w,p,by,bz\n";
-  std::cout << std::setprecision(17);
-  for (std::size_t index = workspace.Lbx; index <= workspace.Ubx; ++index) {
-    const std::size_t center_index = index - workspace.Lbx;
-    std::cout << workspace.x(center_index) << ',' << workspace.primitive(index, 0) << ','
-              << workspace.primitive(index, 1) << ',' << workspace.primitive(index, 2) << ','
-              << workspace.primitive(index, 3) << ',' << workspace.primitive(index, 4) << ','
-              << workspace.primitive(index, 5) << ',' << workspace.primitive(index, 6) << '\n';
-  }
+  write_csv(workspace, std::cout);
 
   return 0;
 }
