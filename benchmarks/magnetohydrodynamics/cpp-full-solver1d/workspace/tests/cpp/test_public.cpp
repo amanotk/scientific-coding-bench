@@ -10,7 +10,7 @@ namespace
 
 constexpr double kTolerance = 1.0e-12;
 
-mhd1d::StateVector row_to_state(mhd1d::ConstArrayView cells, std::size_t row)
+mhd1d::StateVector row_to_state(mhd1d::ArrayView2D cells, std::size_t row)
 {
   mhd1d::StateVector state{};
   for (std::size_t component = 0; component < mhd1d::kStateWidth; ++component) {
@@ -19,7 +19,7 @@ mhd1d::StateVector row_to_state(mhd1d::ConstArrayView cells, std::size_t row)
   return state;
 }
 
-void state_to_row(mhd1d::ArrayView cells, std::size_t row, const mhd1d::StateVector& state)
+void state_to_row(mhd1d::ArrayView2D cells, std::size_t row, const mhd1d::StateVector& state)
 {
   for (std::size_t component = 0; component < mhd1d::kStateWidth; ++component) {
     cells(row, component) = state[component];
@@ -73,7 +73,7 @@ TEST_CASE("primitive and conservative states round-trip", "[mhd1d][conversion]")
 TEST_CASE("reconstruct_mc2_primitive_states preserves a constant primitive state exactly",
           "[mhd1d][reconstruction]")
 {
-  mhd1d::SolverWorkspace workspace(4);
+  mhd1d::SolverWorkspace workspace(4, 5.0e-4, 0.1, 2.0, 0.75);
   const auto             constant_state = mhd1d::StateVector{0.9, 0.3, -0.2, 0.1, 1.8, -0.45, 0.6};
 
   for (std::size_t index = 0; index < workspace.conservative.extent(0); ++index) {
@@ -124,7 +124,7 @@ TEST_CASE("hlld_flux_from_primitive matches the physical flux for identical stat
 TEST_CASE("apply_zero_gradient_boundary duplicates edge states on both sides", "[mhd1d][boundary]")
 {
   std::vector<double>    padded_buffer(7 * mhd1d::kStateWidth, 0.0);
-  const mhd1d::ArrayView padded(padded_buffer.data(), 7, mhd1d::kStateWidth);
+  const mhd1d::ArrayView2D padded(padded_buffer.data(), 7, mhd1d::kStateWidth);
   state_to_row(padded, 2, mhd1d::StateVector{1.0, 0.5, -0.25, 0.125, 2.0, 0.1, -0.05});
   state_to_row(padded, 3, mhd1d::StateVector{1.2, 0.6, -0.2, 0.15, 2.2, 0.12, -0.02});
   state_to_row(padded, 4, mhd1d::StateVector{1.4, 0.7, -0.15, 0.175, 2.4, 0.14, 0.01});
@@ -143,7 +143,7 @@ TEST_CASE("apply_zero_gradient_boundary duplicates edge states on both sides", "
 TEST_CASE("apply_zero_gradient_boundary handles a single interior cell", "[mhd1d][boundary]")
 {
   std::vector<double>    padded_buffer(5 * mhd1d::kStateWidth, 0.0);
-  const mhd1d::ArrayView padded(padded_buffer.data(), 5, mhd1d::kStateWidth);
+  const mhd1d::ArrayView2D padded(padded_buffer.data(), 5, mhd1d::kStateWidth);
   const auto             cell = mhd1d::StateVector{1.5, -0.75, 0.25, 0.0, 3.5, -0.1, 0.2};
   state_to_row(padded, 2, cell);
   mhd1d::apply_zero_gradient_boundary(padded, 2, 2);
@@ -157,7 +157,7 @@ TEST_CASE("apply_zero_gradient_boundary overwrites ghost cells from interior bou
           "[mhd1d][boundary]")
 {
   std::vector<double>    cells_buffer(6 * mhd1d::kStateWidth, 0.0);
-  const mhd1d::ArrayView cells(cells_buffer.data(), 6, mhd1d::kStateWidth);
+  const mhd1d::ArrayView2D cells(cells_buffer.data(), 6, mhd1d::kStateWidth);
 
   state_to_row(cells, 0, mhd1d::StateVector{-1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0});
   state_to_row(cells, 1, mhd1d::StateVector{1.0, 0.1, 0.2, 0.3, 2.0, 0.4, 0.5});
@@ -184,7 +184,7 @@ TEST_CASE("apply_zero_gradient_boundary overwrites ghost cells from interior bou
 std::vector<double> make_sample_conservative_cells()
 {
   std::vector<double>    conservative_cells(4 * mhd1d::kStateWidth, 0.0);
-  const mhd1d::ArrayView view(conservative_cells.data(), 4, mhd1d::kStateWidth);
+  const mhd1d::ArrayView2D view(conservative_cells.data(), 4, mhd1d::kStateWidth);
   state_to_row(view, 0, mhd1d::StateVector{1.0, 0.1, 0.0, 0.0, 1.6, 0.20, 0.00});
   state_to_row(view, 1, mhd1d::StateVector{0.9, 0.0, 0.1, 0.0, 1.3, 0.15, 0.05});
   state_to_row(view, 2, mhd1d::StateVector{0.8, -0.1, 0.0, 0.1, 1.1, 0.10, 0.10});
@@ -192,13 +192,10 @@ std::vector<double> make_sample_conservative_cells()
   return conservative_cells;
 }
 
-TEST_CASE("arrayview compute_semidiscrete_rhs returns finite values", "[mhd1d][arrayview]")
+TEST_CASE("compute_semidiscrete_rhs returns finite values", "[mhd1d][evolution]")
 {
   const std::size_t      nx = 4;
-  mhd1d::SolverWorkspace workspace(nx);
-  workspace.dx    = 1.0 / static_cast<double>(nx);
-  workspace.bx    = 0.75;
-  workspace.gamma = 2.0;
+  mhd1d::SolverWorkspace workspace(nx, 5.0e-4, 0.1, 2.0, 0.75);
 
   const std::vector<double> conservative_cells = make_sample_conservative_cells();
   for (std::size_t row = 0; row < nx; ++row) {
@@ -216,14 +213,10 @@ TEST_CASE("arrayview compute_semidiscrete_rhs returns finite values", "[mhd1d][a
   }
 }
 
-TEST_CASE("arrayview ssp_rk3_step evolves state with finite conservative values",
-          "[mhd1d][arrayview]")
+TEST_CASE("ssp_rk3_step evolves state with finite conservative values", "[mhd1d][evolution]")
 {
   const std::size_t      nx = 4;
-  mhd1d::SolverWorkspace workspace(nx);
-  workspace.dx    = 1.0 / static_cast<double>(nx);
-  workspace.bx    = 0.75;
-  workspace.gamma = 2.0;
+  mhd1d::SolverWorkspace workspace(nx, 5.0e-4, 0.1, 2.0, 0.75);
 
   const std::vector<double> conservative_cells = make_sample_conservative_cells();
   for (std::size_t row = 0; row < nx; ++row) {
@@ -244,24 +237,15 @@ TEST_CASE("arrayview ssp_rk3_step evolves state with finite conservative values"
   }
 }
 
-TEST_CASE("arrayview evolve_ssp_rk3_fixed_dt matches repeated arrayview steps",
-          "[mhd1d][arrayview]")
+TEST_CASE("evolve_ssp_rk3_fixed_dt matches repeated ssp_rk3_step calls", "[mhd1d][evolution]")
 {
   const std::size_t nx      = 4;
   const double      dt      = 1.0e-4;
   const double      t_final = 2.0e-4;
 
-  mhd1d::SolverWorkspace evolved_workspace(nx);
-  evolved_workspace.dx      = 1.0 / static_cast<double>(nx);
-  evolved_workspace.bx      = 0.75;
-  evolved_workspace.gamma   = 2.0;
-  evolved_workspace.dt      = dt;
-  evolved_workspace.t_final = t_final;
+  mhd1d::SolverWorkspace evolved_workspace(nx, dt, t_final, 2.0, 0.75);
 
-  mhd1d::SolverWorkspace manual_workspace(nx);
-  manual_workspace.dx    = evolved_workspace.dx;
-  manual_workspace.bx    = evolved_workspace.bx;
-  manual_workspace.gamma = evolved_workspace.gamma;
+  mhd1d::SolverWorkspace manual_workspace(nx, dt, t_final, 2.0, 0.75);
 
   const std::vector<double> conservative_cells = make_sample_conservative_cells();
   for (std::size_t row = 0; row < nx; ++row) {
