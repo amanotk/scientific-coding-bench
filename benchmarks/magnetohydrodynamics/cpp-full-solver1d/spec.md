@@ -48,7 +48,7 @@ where `mx = rho * u`, `my = rho * v`, `mz = rho * w`, and total energy
 | `Bx` | 0.75 |
 | `dt` | 5.0e-4 |
 | `t_final` | 0.1 |
-| `nx` | 400 |
+| `nx` | 100 |
 
 ## Building
 

@@ -82,22 +82,21 @@ def main() -> int:
 
     fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
     plots = [
-        (axes[0, 0], "rho", "Density"),
-        (axes[0, 1], "u", "Velocity u"),
-        (axes[1, 0], "p", "Pressure"),
-        (axes[1, 1], "by", "Magnetic field by"),
+        (axes[0, 0], "rho", r"$\rho$"),
+        (axes[0, 1], "u", r"$u$"),
+        (axes[1, 0], "p", r"$p$"),
+        (axes[1, 1], "by", r"$B_y$"),
     ]
 
-    for axis, field, title in plots:
+    for axis, field, ylabel in plots:
         axis.plot(x_values, columns[field], linewidth=1.5)
-        axis.set_title(title)
-        axis.set_ylabel(field)
+        axis.set_ylabel(ylabel)
         axis.grid(True, alpha=0.3)
 
     for axis in axes[1, :]:
-        axis.set_xlabel("x")
+        axis.set_xlabel(r"$x$")
 
-    fig.suptitle(f"Brio-Wu profiles: {csv_path}")
+    fig.suptitle(r"Brio-Wu Problem at $t = 0.1$")
     fig.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=150)

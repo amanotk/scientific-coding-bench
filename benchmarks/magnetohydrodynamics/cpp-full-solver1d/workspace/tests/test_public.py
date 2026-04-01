@@ -57,10 +57,10 @@ def test_public_brio_wu_cli_matches_reference_grid() -> None:
 
     assert rows[0] == ["x", "rho", "u", "v", "w", "p", "by", "bz"]
     assert rows[0] == golden_rows[0]
-    assert len(rows) - 1 == 400
+    assert len(rows) - 1 == 100
     assert len(rows) == len(golden_rows)
 
-    dx = (1.0 - 0.0) / 400.0
+    dx = (1.0 - 0.0) / 100.0
     for index, (row, golden_row) in enumerate(zip(rows[1:], golden_rows[1:])):
         assert len(row) == 8
         assert len(golden_row) == 8

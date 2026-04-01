@@ -4,7 +4,7 @@
 #include <iostream>
 #include <vector>
 
-constexpr int                Nx    = 400;
+constexpr int                Nx    = 100;
 constexpr double             Gamma = 2.0;
 constexpr double             Bx    = 0.75;
 constexpr mhd1d::StateVector LeftPrimitive{

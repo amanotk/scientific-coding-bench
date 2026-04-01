@@ -23,7 +23,7 @@
     "exclude_edge_adjacents_per_side": 2
   },
   "name": "brio_wu",
-  "nx": 400,
+  "nx": 100,
   "reference_csv": "brio_wu_reference.csv",
   "schema": [
     "x",
