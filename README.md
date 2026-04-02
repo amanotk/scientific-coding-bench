@@ -114,9 +114,21 @@ Publish a completed run:
 python3 runner/bench.py publish runs/<run_id>/<suite>/<task_id>
 ```
 
+Emit the full payload as machine-readable JSON:
+
+```bash
+python3 runner/bench.py publish --json runs/<run_id>/<suite>/<task_id>
+```
+
+Create the GitHub issue directly from a completed run:
+
+```bash
+python3 scripts/publish_issue.py runs/<run_id>/<suite>/<task_id>
+```
+
 The publish command validates the run record and renders a deterministic issue
 payload for benchmark result publication. See `docs/run-flow.md` for details on
-run artifacts and the publication workflow.
+run artifacts, labels, and the publication workflow.
 
 ## Repository Layout
 

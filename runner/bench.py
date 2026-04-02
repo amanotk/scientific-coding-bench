@@ -302,6 +302,10 @@ def _print_publish_payload(run_dir: Path, payload: dict[str, Any]) -> None:
     print(payload["body"], end="")
 
 
+def _print_publish_payload_json(payload: dict[str, Any]) -> None:
+    print(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
+
+
 def cmd_publish(args: argparse.Namespace) -> int:
     run_dir = _resolve_publish_run_dir(str(args.run_dir))
     if not run_dir.exists() or not run_dir.is_dir():
@@ -319,7 +323,10 @@ def cmd_publish(args: argparse.Namespace) -> int:
         print(f"Failed to load publication payload: {e}", file=sys.stderr)
         return 2
 
-    _print_publish_payload(run_dir, payload)
+    if bool(args.json):
+        _print_publish_payload_json(payload)
+    else:
+        _print_publish_payload(run_dir, payload)
     return 0
 
 
@@ -1221,6 +1228,11 @@ def main(argv: list[str]) -> int:
         "publish", help="Render a publication payload for a completed run"
     )
     p_publish.add_argument("run_dir", help="Path to a completed run directory")
+    p_publish.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the full publication payload as JSON",
+    )
     p_publish.set_defaults(fn=cmd_publish)
 
     p_prepare = sub.add_parser("prepare", help="Create an isolated run workspace")

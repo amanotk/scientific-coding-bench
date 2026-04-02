@@ -200,12 +200,21 @@ def _publication_signals(record: Mapping[str, Any]) -> list[str]:
 
 
 def _issue_labels(record: Mapping[str, Any]) -> list[str]:
-    labels = {"benchmark-result", "schema-v1", f"status-{_slugify(record['status'])}"}
+    labels = {"result", "schema-v1", _issue_status_label(record["status"])}
     if _publication_signals(record):
-        labels.add("experimental")
-    if record["repo_dirty"] is True:
-        labels.add("repo-dirty")
+        labels.add("track:experimental")
+    else:
+        labels.add("track:official")
     return sorted(labels)
+
+
+def _issue_status_label(status: str) -> str:
+    normalized = status.strip().lower()
+    if normalized == "passed":
+        return "status:passed"
+    if normalized == "failed":
+        return "status:failed"
+    return "status:error"
 
 
 def _slugify(value: str) -> str:
@@ -216,7 +225,7 @@ def _slugify(value: str) -> str:
 
 
 def _issue_title(record: Mapping[str, Any]) -> str:
-    title = f"[{record['status']}] {record['task']}"
+    title = f"[result] [{record['status']}] {record['task']}"
     repo_commit_sha = record.get("repo_commit_sha")
     if isinstance(repo_commit_sha, str) and repo_commit_sha:
         title = f"{title} @ {repo_commit_sha[:12]}"

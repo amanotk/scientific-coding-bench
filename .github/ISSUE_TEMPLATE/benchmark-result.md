@@ -2,7 +2,7 @@
 name: Benchmark result
 about: Publish a completed benchmark run using the canonical result payload
 title: "[result] "
-labels: ["benchmark-result", "schema-v1"]
+labels: ["result", "schema-v1"]
 assignees: []
 ---
 
@@ -13,8 +13,8 @@ Use this template only for published benchmark results.
 - Keep the issue title prefixed with `[result]`.
 - Paste the JSON emitted by `runner/bench.py publish` exactly as generated.
 - Do not use this template for bugs, features, or other issue types.
-- Add `experimental` when the generated payload includes signals or warnings that make the run non-leaderboard-eligible.
-- Leave leaderboard-eligible runs marked only with the required benchmark-result classification and the generated publish labels.
+- Add `track:experimental` when the generated payload includes signals or warnings that make the run non-leaderboard-eligible.
+- Leave leaderboard-eligible runs marked only with the required result classification and the generated publish labels.
 
 ## Paste the generated payload
 
@@ -26,9 +26,10 @@ Replace this block with the exact JSON body from the publish command.
   "issue": {
     "title": "<paste generated title>",
     "labels": [
-      "benchmark-result",
+      "result",
       "schema-v1",
-      "status-<slug>"
+      "status:<state>",
+      "track:official"
     ]
   },
   "publication": {

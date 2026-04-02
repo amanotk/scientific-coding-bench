@@ -61,11 +61,11 @@ class TestPublishHelpers(unittest.TestCase):
             self.assertEqual(payload_one, payload_two)
             self.assertEqual(
                 payload_one["title"],
-                "[passed] suite/task @ abcdef123456",
+                "[result] [passed] suite/task @ abcdef123456",
             )
             self.assertEqual(
                 payload_one["labels"],
-                ["benchmark-result", "schema-v1", "status-passed"],
+                ["result", "schema-v1", "status:passed", "track:official"],
             )
             self.assertEqual(payload_one["warnings"], [])
             self.assertEqual(payload_one["signals"], [])
@@ -89,8 +89,7 @@ class TestPublishHelpers(unittest.TestCase):
 
             payload = publish_helpers.build_publication_payload(run_dir)
 
-            self.assertIn("experimental", payload["labels"])
-            self.assertIn("repo-dirty", payload["labels"])
+            self.assertIn("track:experimental", payload["labels"])
             self.assertTrue(payload["signals"])
             self.assertIn("repository had uncommitted changes", payload["warnings"][0])
             self.assertIn("mark as experimental", payload["warnings"][1])
@@ -248,8 +247,8 @@ class TestPublishHelpers(unittest.TestCase):
 
             payload = publish_helpers.build_publication_payload(run_dir)
 
-            self.assertEqual(payload["title"], "[passed] suite/task")
-            self.assertIn("experimental", payload["labels"])
+            self.assertEqual(payload["title"], "[result] [passed] suite/task")
+            self.assertIn("track:experimental", payload["labels"])
             self.assertIn("repo_commit_sha_missing", payload["signals"])
             self.assertIn("repo_branch_missing", payload["signals"])
             self.assertIn("repo_dirty_unknown", payload["signals"])
@@ -399,7 +398,7 @@ class TestPublishHelpers(unittest.TestCase):
             _write_run_record(run_dir, record)
             payload = publish_helpers.build_publication_payload(run_dir)
 
-            self.assertIn("status-failed", payload["labels"])
+            self.assertIn("status:failed", payload["labels"])
 
     def test_sluggified_status_with_special_characters(self):
         with tempfile.TemporaryDirectory() as td:
@@ -410,7 +409,7 @@ class TestPublishHelpers(unittest.TestCase):
             _write_run_record(run_dir, record)
             payload = publish_helpers.build_publication_payload(run_dir)
 
-            self.assertIn("status-failed-with-issues", payload["labels"])
+            self.assertIn("status:error", payload["labels"])
 
     def test_missing_repo_commit_sha_is_required_field_error(self):
         """repo_commit_sha is a required field - missing it raises ValueError."""
@@ -572,7 +571,7 @@ class TestPublishHelpers(unittest.TestCase):
 
             payload = publish_helpers.build_publication_payload(run_dir)
             # Status should be slugified - dangerous chars become hyphens
-            self.assertIn("status-passed-drop-table-runs", payload["labels"])
+            self.assertIn("status:error", payload["labels"])
 
     def test_very_long_task_string(self):
         """Oversized input - very long task string (>10KB)."""
@@ -612,7 +611,7 @@ class TestPublishHelpers(unittest.TestCase):
 
             payload = publish_helpers.build_publication_payload(run_dir)
 
-            self.assertIn("experimental", payload["labels"])
+            self.assertIn("track:experimental", payload["labels"])
             self.assertIn("repo_branch_missing", payload["signals"])
             self.assertIn(
                 "repository branch could not be resolved at completion time",
@@ -749,8 +748,8 @@ class TestPublishHelpers(unittest.TestCase):
             _write_run_record(run_dir, record)
 
             payload = publish_helpers.build_publication_payload(run_dir)
-            # Emoji should be slugified into label
-            self.assertIn("status-passed", payload["labels"])
+            # Non-canonical status values should fall back to status:error
+            self.assertIn("status:error", payload["labels"])
 
     def test_combining_characters_in_task(self):
         """Combining characters that modify string visually."""

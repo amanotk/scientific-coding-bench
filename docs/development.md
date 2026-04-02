@@ -119,12 +119,13 @@ The publish command generates labels automatically based on run metadata:
 
 | Label | When Applied | Purpose |
 |-------|--------------|---------|
-| `benchmark-result` | Always | Classifies issue as a benchmark result submission |
+| `result` | Always | Classifies issue as a benchmark result submission |
 | `schema-v1` | Always | Indicates run.json schema version |
-| `status-passed` | `status == "passed"` | Run completed successfully |
-| `status-failed` | `status != "passed"` | Run did not pass |
-| `experimental` | Signals present | Non-leaderboard-eligible run |
-| `repo-dirty` | `repo_dirty == true` | Repository had uncommitted changes |
+| `status:passed` | `status == "passed"` | Run completed successfully |
+| `status:failed` | `status == "failed"` | Run failed evaluation |
+| `status:error` | Other non-passing statuses | Run errored or ended abnormally |
+| `track:official` | No signals present | Leaderboard-eligible run |
+| `track:experimental` | Signals present | Non-leaderboard-eligible run |
 
 ### Review Expectations
 
@@ -137,11 +138,11 @@ The publish command generates labels automatically based on run metadata:
 
 Note: the `publication.eligible` field in the payload is always `true`; use the
 `signals` array to determine if a run is leaderboard-eligible. Runs with signals
-receive the `experimental` label and are not leaderboard candidates.
+receive the `track:experimental` label and are not leaderboard candidates.
 
 These runs are candidates for inclusion in the official benchmark leaderboard.
 
-**Experimental runs** are marked with the `experimental` label when:
+**Experimental runs** are marked with the `track:experimental` label when:
 
 - `status` is not `"passed"` (e.g., `"failed"`, `"timeout"`)
 - `repo_dirty` is `true` (uncommitted changes at completion time)

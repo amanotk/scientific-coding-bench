@@ -282,6 +282,18 @@ and submission using the `publish` command:
 python3 runner/bench.py publish runs/<run_id>/<suite>/<task_id>
 ```
 
+For machine-readable output:
+
+```bash
+python3 runner/bench.py publish --json runs/<run_id>/<suite>/<task_id>
+```
+
+To create the GitHub issue directly with the generated title, labels, and body:
+
+```bash
+python3 scripts/publish_issue.py runs/<run_id>/<suite>/<task_id>
+```
+
 The publish command:
 
 1. Loads and validates the `run.json` record from the run directory
@@ -296,7 +308,7 @@ The publish command detects signals that affect review classification:
 - `repo_dirty`: repository had uncommitted changes at completion time
 - `non_passing_status`: run status is not `"passed"`
 
-Runs with signals are marked as **experimental** and receive the `experimental`
+Runs with signals are marked as **experimental** and receive the `track:experimental`
 label in the generated issue payload. The `publication.eligible` field in the
 payload is always `true`; reviewers should check for the presence of signals
 to determine if a run is leaderboard-eligible.
@@ -305,17 +317,17 @@ to determine if a run is leaderboard-eligible.
 
 The publish command generates labels for the GitHub issue:
 
-- `benchmark-result`: classification as a benchmark result submission
+- `result`: classification as a benchmark result submission
 - `schema-v1`: schema version of the run record
-- `status-<slug>`: normalized status (e.g., `status-passed`, `status-failed`)
-- `experimental`: added when signals are present (non-leaderboard-eligible)
-- `repo-dirty`: added when `repo_dirty` is `true`
+- `status:<state>`: normalized status (`status:passed`, `status:failed`, `status:error`)
+- `track:official`: added when no publication signals are present
+- `track:experimental`: added when signals are present (non-leaderboard-eligible)
 
 ### Publication Payload
 
 The publish command outputs a structured payload:
 
-- `title`: suggested issue title (e.g., `[passed] demo/py @ abc123def456`)
+- `title`: suggested issue title (e.g., `[result] [passed] demo/py @ abc123def456`)
 - `labels`: array of labels to apply
 - `body`: JSON body string to paste into the issue
 - `body_payload`: structured payload object used to render the body
@@ -334,12 +346,12 @@ Use the generated body verbatim when creating a benchmark result issue via the
 - `status` must be `"passed"`
 - `repo_dirty` must be `false`
 - No publication signals present
-- Labels: `benchmark-result`, `schema-v1`, `status-passed`
+- Labels: `result`, `schema-v1`, `status:passed`, `track:official`
 
 **Experimental runs:**
 
 - May have `status` other than `"passed"` or `repo_dirty: true`
-- Marked with `experimental` label
+- Marked with `track:experimental` label
 - Useful for development, regression testing, or exploratory work
 - Not eligible for leaderboard inclusion until re-run under clean conditions
 

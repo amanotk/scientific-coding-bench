@@ -376,10 +376,48 @@ eval_cmd = "/eval/run.sh"
             self.assertIn(f"[{run_dir}] Publication", stdout_text)
             self.assertIn("payload:", stdout_text)
             self.assertIn('"schema_version": "1.0.0"', stdout_text)
-            self.assertIn('"title": "[passed] suite/task @ abcdef123456"', stdout_text)
+            self.assertIn(
+                '"title": "[result] [passed] suite/task @ abcdef123456"',
+                stdout_text,
+            )
             self.assertIn('"body_payload": {', stdout_text)
             self.assertIn("body:", stdout_text)
             self.assertIn('"run_record": {', stdout_text)
+
+    def test_publish_json_emits_machine_readable_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            run_dir = Path(td) / "run"
+            _write_run_record(
+                run_dir,
+                {
+                    "schema_version": "1.0.0",
+                    "completed_at": "2026-03-28T12:34:56Z",
+                    "repo_commit_sha": "abcdef1234567890abcdef1234567890abcdef12",
+                    "repo_branch": "main",
+                    "repo_dirty": False,
+                    "task": "suite/task",
+                    "status": "passed",
+                    "score": 1.0,
+                },
+            )
+
+            out = StringIO()
+            err = StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = bench.main(["publish", "--json", str(run_dir)])
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(err.getvalue(), "")
+            payload = json.loads(out.getvalue())
+            self.assertEqual(
+                payload["title"],
+                "[result] [passed] suite/task @ abcdef123456",
+            )
+            self.assertEqual(
+                payload["labels"],
+                ["result", "schema-v1", "status:passed", "track:official"],
+            )
+            self.assertIn('"issue": {', payload["body"])
 
     def test_publish_rejects_missing_run_directory(self):
         with tempfile.TemporaryDirectory() as td:
