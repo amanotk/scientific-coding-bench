@@ -149,7 +149,7 @@ void compute_flux_hlld(SolverWorkspace& workspace, double bx, double gamma)
 
   const int lbx = workspace.Lbx;
   const int ubx = workspace.Ubx;
-  for (int ix = lbx - 1; ix <= ubx + 1; ++ix) {
+  for (int ix = lbx - 1; ix <= ubx; ++ix) {
     ::hlld_flux_from_primitive(&up_l(ix, 0), &up_r(ix + 1, 0), bx, gamma, &flux(ix, 0));
   }
 }
