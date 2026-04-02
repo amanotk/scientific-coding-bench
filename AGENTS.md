@@ -16,6 +16,7 @@ Repo map (core):
 - `benchmarks/<suite>/<task_id>/task.toml`: task metadata for the runner
 - `benchmarks/<suite>/<task_id>/workspace/`: template copied into a fresh per-run workdir
 - `benchmarks/<suite>/<task_id>/eval/`: evaluation harness (should be hidden from the model)
+- `tests/test-tasks/<suite>/<task_id>/`: smoke and E2E support tasks runnable through the CLI via `test:<suite>/<task_id>`
 - `runner/bench.py`: CLI (list/check/prepare/shell/run/eval)
 - `agents_default.toml`: default multi-agent config (opencode/codex/claude/copilot)
 - `sample/*.toml`: sample single-agent overrides
@@ -26,7 +27,21 @@ Repo map (core):
 
 ## Build / Lint / Test Commands
 
-Build the unified Docker image:
+For normal local use, pull the published GHCR image and tag it as
+`simbench:0.1`:
+
+```bash
+docker pull ghcr.io/amanotk/simbench:develop
+docker tag ghcr.io/amanotk/simbench:develop simbench:0.1
+```
+
+If the package is not publicly accessible to you, authenticate first:
+
+```bash
+docker login ghcr.io
+```
+
+Build the unified Docker image locally only if needed:
 
 ```bash
 python3 scripts/build_image.py
@@ -119,13 +134,23 @@ Notes:
 Runner tests:
 
 ```bash
-python3 -m unittest -q tests.test_runner_bench
+python3 -m unittest -q tests.test_runner_smoke
+python3 -m unittest -q tests.test_runner_helpers
+python3 -m unittest -q tests.test_runner_cli_flow
+python3 -m unittest -q tests.test_runner_check_cmd
+python3 -m unittest -q tests.test_runner_bench_adversarial
+```
+
+Run all runner tests:
+
+```bash
+python3 -m unittest -q discover -s tests -p 'test_runner_*.py'
 ```
 
 Run a single test:
 
 ```bash
-python3 -m unittest -q tests.test_runner_bench.TestBenchHelpers.test_expand_path
+python3 -m unittest -q tests.test_runner_helpers.TestBenchHelpers.test_expand_path
 ```
 
 Timeouts:
