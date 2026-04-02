@@ -69,10 +69,35 @@ def _require_str_field(record: Mapping[str, Any], field_name: str) -> str:
     return text
 
 
+def _require_nullable_str_field(
+    record: Mapping[str, Any], field_name: str
+) -> str | None:
+    value = record.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"run.json field {field_name!r} must be a string or null")
+    text = value.strip()
+    if not text:
+        raise ValueError(f"run.json field {field_name!r} must not be empty")
+    return text
+
+
 def _require_bool_field(record: Mapping[str, Any], field_name: str) -> bool:
     value = record.get(field_name)
     if not isinstance(value, bool):
         raise ValueError(f"run.json field {field_name!r} must be a boolean")
+    return value
+
+
+def _require_nullable_bool_field(
+    record: Mapping[str, Any], field_name: str
+) -> bool | None:
+    value = record.get(field_name)
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise ValueError(f"run.json field {field_name!r} must be a boolean or null")
     return value
 
 
@@ -103,14 +128,16 @@ def _normalize_record(record: Mapping[str, Any]) -> dict[str, Any]:
     completed_at = _require_str_field(record, "completed_at")
     _validate_completed_at(completed_at)
 
-    repo_commit_sha = _require_str_field(record, "repo_commit_sha").lower()
-    if not _REPO_COMMIT_SHA_RE.fullmatch(repo_commit_sha):
-        raise ValueError(
-            "run.json field 'repo_commit_sha' must be a 40-character hex sha"
-        )
+    repo_commit_sha = _require_nullable_str_field(record, "repo_commit_sha")
+    if repo_commit_sha is not None:
+        repo_commit_sha = repo_commit_sha.lower()
+        if not _REPO_COMMIT_SHA_RE.fullmatch(repo_commit_sha):
+            raise ValueError(
+                "run.json field 'repo_commit_sha' must be a 40-character hex sha"
+            )
 
-    repo_branch = _require_str_field(record, "repo_branch")
-    repo_dirty = _require_bool_field(record, "repo_dirty")
+    repo_branch = _require_nullable_str_field(record, "repo_branch")
+    repo_dirty = _require_nullable_bool_field(record, "repo_dirty")
     task_ref = _require_str_field(record, "task")
     status = _require_str_field(record, "status")
     score = _require_numeric_field(record, "score")
@@ -137,7 +164,17 @@ def validate_run_record(record: Mapping[str, Any]) -> list[str]:
     normalized = _normalize_record(record)
     warnings: list[str] = []
     status = normalized["status"].strip().lower()
-    if normalized["repo_dirty"]:
+    if normalized["repo_commit_sha"] is None:
+        warnings.append(
+            "repository commit sha could not be resolved at completion time"
+        )
+    if normalized["repo_branch"] is None:
+        warnings.append("repository branch could not be resolved at completion time")
+    if normalized["repo_dirty"] is None:
+        warnings.append(
+            "repository dirty state could not be resolved at completion time"
+        )
+    elif normalized["repo_dirty"]:
         warnings.append("repository had uncommitted changes at completion time")
     if status != "passed":
         warnings.append(f"run status is {normalized['status']!r}; mark as experimental")
@@ -149,7 +186,13 @@ validate_publishable_run_record = validate_run_record
 
 def _publication_signals(record: Mapping[str, Any]) -> list[str]:
     signals: list[str] = []
-    if record["repo_dirty"]:
+    if record["repo_commit_sha"] is None:
+        signals.append("repo_commit_sha_missing")
+    if record["repo_branch"] is None:
+        signals.append("repo_branch_missing")
+    if record["repo_dirty"] is None:
+        signals.append("repo_dirty_unknown")
+    elif record["repo_dirty"]:
         signals.append("repo_dirty")
     if record["status"].strip().lower() != "passed":
         signals.append("non_passing_status")
@@ -160,7 +203,7 @@ def _issue_labels(record: Mapping[str, Any]) -> list[str]:
     labels = {"benchmark-result", "schema-v1", f"status-{_slugify(record['status'])}"}
     if _publication_signals(record):
         labels.add("experimental")
-    if record["repo_dirty"]:
+    if record["repo_dirty"] is True:
         labels.add("repo-dirty")
     return sorted(labels)
 

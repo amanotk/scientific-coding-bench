@@ -222,6 +222,26 @@ class TestBenchHelpers(unittest.TestCase):
 
         self.assertEqual(metrics, {})
 
+    def test_collect_opencode_usage_metrics_uses_xdg_data_home(self):
+        captured: dict[str, object] = {}
+
+        def _fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["env"] = kwargs["env"]
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = Path(td) / ".opencode-data"
+            state_dir.mkdir()
+            with mock.patch("subprocess.run", side_effect=_fake_run):
+                bench._collect_opencode_usage_metrics(state_dir=state_dir)
+
+        self.assertEqual(captured["cmd"], ["opencode", "stats", "--models", "1"])
+        env = captured["env"]
+        assert isinstance(env, dict)
+        self.assertEqual(env.get("XDG_DATA_HOME"), str(state_dir))
+        self.assertNotEqual(env.get("HOME"), str(state_dir))
+
     def test_extract_agent_usage_metrics_for_claude_result(self):
         stdout = "\n".join(
             [

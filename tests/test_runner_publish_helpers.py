@@ -237,6 +237,48 @@ class TestPublishHelpers(unittest.TestCase):
 
         self.assertEqual(warnings, [])
 
+    def test_build_publication_payload_allows_null_repo_provenance(self):
+        with tempfile.TemporaryDirectory() as td:
+            run_dir = Path(td)
+            record = _valid_run_record()
+            record["repo_commit_sha"] = None
+            record["repo_branch"] = None
+            record["repo_dirty"] = None
+            _write_run_record(run_dir, record)
+
+            payload = publish_helpers.build_publication_payload(run_dir)
+
+            self.assertEqual(payload["title"], "[passed] suite/task")
+            self.assertIn("experimental", payload["labels"])
+            self.assertIn("repo_commit_sha_missing", payload["signals"])
+            self.assertIn("repo_branch_missing", payload["signals"])
+            self.assertIn("repo_dirty_unknown", payload["signals"])
+            self.assertIn(
+                "repository commit sha could not be resolved at completion time",
+                payload["warnings"],
+            )
+            self.assertIn(
+                "repository branch could not be resolved at completion time",
+                payload["warnings"],
+            )
+            self.assertIn(
+                "repository dirty state could not be resolved at completion time",
+                payload["warnings"],
+            )
+
+    def test_validate_run_record_rejects_invalid_nullable_repo_provenance_types(self):
+        for field_name, bad_value in (
+            ("repo_commit_sha", 123),
+            ("repo_branch", 123),
+            ("repo_dirty", "false"),
+        ):
+            with self.subTest(field_name=field_name):
+                record = _valid_run_record()
+                record[field_name] = bad_value
+
+                with self.assertRaises(ValueError):
+                    publish_helpers.validate_run_record(record)
+
     def test_render_publication_body_returns_sorted_json_with_newline(self):
         payload = {
             "schema_version": "1.0.0",
@@ -561,17 +603,21 @@ class TestPublishHelpers(unittest.TestCase):
             self.assertIn("extra_data", payload["run_record"])
 
     def test_null_value_in_optional_field(self):
-        """Null value in a field that should be string."""
+        """Null repo provenance is accepted and surfaced as a warning."""
         with tempfile.TemporaryDirectory() as td:
             run_dir = Path(td)
             record = _valid_run_record()
-            record["repo_branch"] = None  # Should be string
+            record["repo_branch"] = None
             _write_run_record(run_dir, record)
 
-            with self.assertRaises(ValueError) as ctx:
-                publish_helpers.build_publication_payload(run_dir)
+            payload = publish_helpers.build_publication_payload(run_dir)
 
-            self.assertIn("repo_branch", str(ctx.exception))
+            self.assertIn("experimental", payload["labels"])
+            self.assertIn("repo_branch_missing", payload["signals"])
+            self.assertIn(
+                "repository branch could not be resolved at completion time",
+                payload["warnings"],
+            )
 
     def test_array_instead_of_string_field(self):
         """Array where string is expected."""
