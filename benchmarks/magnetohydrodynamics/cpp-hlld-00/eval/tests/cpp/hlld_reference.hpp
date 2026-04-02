@@ -6,7 +6,10 @@
 #include "../../../workspace/src/hlld.hpp"
 #endif
 
+#include <array>
 #include <cmath>
+
+using StateVector = std::array<double, 7>;
 
 namespace hidden_reference
 {
@@ -215,23 +218,12 @@ inline StateVector hlld_flux_from_primitive(const StateVector& left, const State
   };
 }
 
-inline StateVector hlld_flux_from_conservative(const StateVector& left, const StateVector& right,
-                                               double bx, double gamma)
+inline StateVector solver_flux_from_primitive(const StateVector& left, const StateVector& right,
+                                              double bx, double gamma)
 {
-  const auto to_primitive = [bx, gamma](const StateVector& state) {
-    const double rho      = state[0];
-    const double u        = state[1] / rho;
-    const double v        = state[2] / rho;
-    const double w        = state[3] / rho;
-    const double by       = state[5];
-    const double bz       = state[6];
-    const double kinetic  = 0.5 * rho * (u * u + v * v + w * w);
-    const double magnetic = 0.5 * (bx * bx + by * by + bz * bz);
-    const double p        = (gamma - 1.0) * (state[4] - kinetic - magnetic);
-    return StateVector{rho, u, v, w, p, by, bz};
-  };
-
-  return hlld_flux_from_primitive(to_primitive(left), to_primitive(right), bx, gamma);
+  StateVector flux{};
+  ::hlld_flux_from_primitive(left.data(), right.data(), bx, gamma, flux.data());
+  return flux;
 }
 
 } // namespace hidden_reference

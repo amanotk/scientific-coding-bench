@@ -12,6 +12,10 @@
 
 #include <cmath>
 
+#include <array>
+
+using StateVector = std::array<double, 7>;
+
 namespace
 {
 
@@ -66,6 +70,14 @@ StateVector physical_flux_x(const StateVector& state, double bx, double gamma)
   };
 }
 
+StateVector solver_flux_from_primitive(const StateVector& left, const StateVector& right, double bx,
+                                       double gamma)
+{
+  StateVector flux{};
+  hlld_flux_from_primitive(left.data(), right.data(), bx, gamma, flux.data());
+  return flux;
+}
+
 void require_close(const StateVector& actual, const StateVector& expected)
 {
   for (std::size_t i = 0; i < actual.size(); ++i) {
@@ -82,28 +94,10 @@ TEST_CASE("equal primitive states reduce to the physical flux")
   const StateVector state{1.1, 0.2, -0.3, 0.4, 0.9, 0.5, -0.6};
   const StateVector conservative = primitive_to_conservative(state, bx, gamma);
 
-  const StateVector actual   = hlld_flux_from_primitive(state, state, bx, gamma);
+  const StateVector actual   = solver_flux_from_primitive(state, state, bx, gamma);
   const StateVector expected = physical_flux_x(conservative, bx, gamma);
 
   require_close(actual, expected);
-}
-
-TEST_CASE("primitive and conservative entry points agree")
-{
-  const double bx    = -0.4;
-  const double gamma = 5.0 / 3.0;
-
-  const StateVector left{1.0, 0.3, 0.1, -0.2, 1.0, 0.7, -0.5};
-  const StateVector right{0.8, -0.1, -0.4, 0.25, 0.7, -0.2, 0.3};
-
-  const StateVector left_cons  = primitive_to_conservative(left, bx, gamma);
-  const StateVector right_cons = primitive_to_conservative(right, bx, gamma);
-
-  const StateVector from_primitive = hlld_flux_from_primitive(left, right, bx, gamma);
-  const StateVector from_conservative =
-      hlld_flux_from_conservative(left_cons, right_cons, bx, gamma);
-
-  require_close(from_primitive, from_conservative);
 }
 
 TEST_CASE("right-going contact discontinuity is resolved exactly")
@@ -114,7 +108,7 @@ TEST_CASE("right-going contact discontinuity is resolved exactly")
   const StateVector left{1.0, 0.3, 0.2, -0.15, 1.0, 0.6, -0.3};
   const StateVector right{0.7, 0.3, 0.2, -0.15, 1.0, 0.6, -0.3};
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, physical_flux_x(primitive_to_conservative(left, bx, gamma), bx, gamma));
 }
 
@@ -126,7 +120,7 @@ TEST_CASE("left-going contact discontinuity is resolved exactly")
   const StateVector left{1.0, -0.25, 0.2, -0.15, 1.0, 0.6, -0.3};
   const StateVector right{0.7, -0.25, 0.2, -0.15, 1.0, 0.6, -0.3};
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, physical_flux_x(primitive_to_conservative(right, bx, gamma), bx, gamma));
 }
 
@@ -141,7 +135,7 @@ TEST_CASE("right-going rotational discontinuity is resolved exactly")
       0.2, 1.04, -0.98, -0.04, 0.609, 0.1, 0.2,
   };
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -156,7 +150,7 @@ TEST_CASE("left-going rotational discontinuity is resolved exactly")
       0.2, 1.04, -0.66, -0.68, 0.449, 0.42, -0.44,
   };
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -171,7 +165,7 @@ TEST_CASE("Bx equals zero hydro case matches reference flux")
       0.92274146439449267, 1.3581095429585437, 0.0, 0.0, 3.1282919538345322, 0.0, 0.0,
   };
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -187,7 +181,7 @@ TEST_CASE("Bx equals zero magnetized case matches reference flux")
       1.6980640537315086,  0.31370867365037713, -0.22407762403598386,
   };
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -203,7 +197,7 @@ TEST_CASE("small Bx near-degenerate case matches reference flux")
       0.72345786285986069, 0.081493464279122407, -0.065194831423298072,
   };
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -223,7 +217,7 @@ TEST_CASE("Ryu and Jones shock tube matches reference flux")
       3.9950643754664625,  0.67495208799031015, -0.062307582042232856,
   };
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -244,7 +238,7 @@ TEST_CASE("Brio and Wu shock tube matches reference flux")
       0.0,
   };
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -265,7 +259,7 @@ TEST_CASE("Falle switch-off shock matches reference flux")
       0.0,
   };
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -286,7 +280,7 @@ TEST_CASE("Falle switch-off rarefaction matches reference flux")
       0.0,
   };
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -301,6 +295,6 @@ TEST_CASE("super-fast expansion matches reference flux")
       0.0, -2.425, 0.0, 0.0, 0.0, 0.0, 0.0,
   };
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }

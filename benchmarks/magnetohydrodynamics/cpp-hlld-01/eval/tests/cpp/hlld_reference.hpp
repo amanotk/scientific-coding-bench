@@ -1,39 +1,24 @@
-#include "hlld.hpp"
+#pragma once
 
-#include <algorithm>
+#if __has_include("hlld.hpp")
+#include "hlld.hpp"
+#else
+#include "../../../workspace/src/hlld.hpp"
+#endif
+
+#include <array>
 #include <cmath>
 
-namespace
+using StateVector = std::array<double, 7>;
+
+namespace hidden_reference
 {
 
-constexpr double epsilon = 1.0e-40;
-
-double sign_unit(double x)
+inline StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector& right,
+                                            double bx, double gamma)
 {
-  return (x >= 0.0) ? 1.0 : -1.0;
-}
+  constexpr double eps = 1.0e-40;
 
-StateVector primitive_from_conservative(const StateVector& state, double bx, double gamma)
-{
-  const double rho = state[0];
-  const double u   = state[1] / rho;
-  const double v   = state[2] / rho;
-  const double w   = state[3] / rho;
-  const double by  = state[5];
-  const double bz  = state[6];
-
-  const double kinetic  = 0.5 * rho * (u * u + v * v + w * w);
-  const double magnetic = 0.5 * (bx * bx + by * by + bz * bz);
-  const double p        = (gamma - 1.0) * (state[4] - kinetic - magnetic);
-
-  return StateVector{rho, u, v, w, p, by, bz};
-}
-
-} // namespace
-
-StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector& right, double bx,
-                                     double gamma)
-{
   const double rol = left[0];
   const double vxl = left[1];
   const double vyl = left[2];
@@ -109,8 +94,10 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
   const double sdmr  = sr - sm;
   const double ptst  = (rosdr * ptl - rosdl * ptr + rosdl * rosdr * (vxr - vxl)) * temp;
 
+  const auto sign_unit = [](double x) { return (x >= 0.0) ? 1.0 : -1.0; };
+
   const double temp_fst_l = rosdl * sdml - bxsq;
-  const double sign1_l    = sign_unit(std::abs(temp_fst_l) - epsilon);
+  const double sign1_l    = sign_unit(std::abs(temp_fst_l) - eps);
   const double maxs1_l    = std::max(0.0, sign1_l);
   const double mins1_l    = std::min(0.0, sign1_l);
   const double itf_l      = 1.0 / (temp_fst_l + mins1_l);
@@ -134,7 +121,7 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
                        mins1_l * eel;
 
   const double temp_fst_r = rosdr * sdmr - bxsq;
-  const double sign1_r    = sign_unit(std::abs(temp_fst_r) - epsilon);
+  const double sign1_r    = sign_unit(std::abs(temp_fst_r) - eps);
   const double maxs1_r    = std::max(0.0, sign1_r);
   const double mins1_r    = std::min(0.0, sign1_r);
   const double itf_r      = 1.0 / (temp_fst_r + mins1_r);
@@ -163,7 +150,7 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
   const double slst     = sm - abbx / sqrtrol;
   const double srst     = sm + abbx / sqrtror;
   const double signbx   = sign_unit(bxs);
-  const double sign1_b  = sign_unit(abbx - epsilon);
+  const double sign1_b  = sign_unit(abbx - eps);
   const double maxs1_b  = std::max(0.0, sign1_b);
   const double mins1_b  = -std::min(0.0, sign1_b);
   const double invsumro = maxs1_b / (sqrtrol + sqrtror);
@@ -172,14 +159,20 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
   const double rordst = rorst;
   const double rxldst = rxlst;
   const double rxrdst = rxrst;
+  const double vxldst = vxlst;
+  const double vxrdst = vxrst;
 
   const double vy_shared =
       invsumro * (sqrtrol * vylst + sqrtror * vyrst + signbx * (byrst - bylst));
+  const double vyldst = vylst * mins1_b + vy_shared;
+  const double vyrdst = vyrst * mins1_b + vy_shared;
   const double ryldst = rylst * mins1_b + roldst * vy_shared;
   const double ryrdst = ryrst * mins1_b + rordst * vy_shared;
 
   const double vz_shared =
       invsumro * (sqrtrol * vzlst + sqrtror * vzrst + signbx * (bzrst - bzlst));
+  const double vzldst = vzlst * mins1_b + vz_shared;
+  const double vzrdst = vzrst * mins1_b + vz_shared;
   const double rzldst = rzlst * mins1_b + roldst * vz_shared;
   const double rzrdst = rzrst * mins1_b + rordst * vz_shared;
 
@@ -193,10 +186,6 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
   const double bzldst = bzlst * mins1_b + bz_shared;
   const double bzrdst = bzrst * mins1_b + bz_shared;
 
-  const double vyldst   = vylst * mins1_b + vy_shared;
-  const double vyrdst   = vyrst * mins1_b + vy_shared;
-  const double vzldst   = vzlst * mins1_b + vz_shared;
-  const double vzrdst   = vzrst * mins1_b + vz_shared;
   const double temp_dst = sm * bxs + vyldst * byldst + vzldst * bzldst;
   const double eeldst   = eelst - sqrtrol * signbx * (vdbstl - temp_dst) * maxs1_b;
   const double eerdst   = eerst + sqrtror * signbx * (vdbstr - temp_dst) * maxs1_b;
@@ -229,9 +218,12 @@ StateVector hlld_flux_from_primitive(const StateVector& left, const StateVector&
   };
 }
 
-StateVector hlld_flux_from_conservative(const StateVector& left, const StateVector& right,
-                                        double bx, double gamma)
+inline StateVector solver_flux_from_primitive(const StateVector& left, const StateVector& right,
+                                              double bx, double gamma)
 {
-  return hlld_flux_from_primitive(primitive_from_conservative(left, bx, gamma),
-                                  primitive_from_conservative(right, bx, gamma), bx, gamma);
+  StateVector flux{};
+  ::hlld_flux_from_primitive(left.data(), right.data(), bx, gamma, flux.data());
+  return flux;
 }
+
+} // namespace hidden_reference

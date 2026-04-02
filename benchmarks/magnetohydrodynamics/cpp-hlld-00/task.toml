@@ -1,4 +1,4 @@
-id = "cpp-hlld"
+id = "cpp-hlld-00"
 suite = "magnetohydrodynamics"
 language = "cpp"
 time_limit_sec = 600

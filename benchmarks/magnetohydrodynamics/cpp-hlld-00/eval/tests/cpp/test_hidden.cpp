@@ -12,7 +12,10 @@
 
 #include "hlld_reference.hpp"
 
+#include <array>
 #include <cmath>
+
+using StateVector = std::array<double, 7>;
 
 namespace
 {
@@ -33,9 +36,7 @@ StateVector primitive_to_conservative(const StateVector& state, double bx, doubl
   const double magnetic = 0.5 * (bx * bx + by * by + bz * bz);
   const double energy   = p / (gamma - 1.0) + kinetic + magnetic;
 
-  return StateVector{
-      rho, rho * u, rho * v, rho * w, energy, by, bz,
-  };
+  return StateVector{rho, rho * u, rho * v, rho * w, energy, by, bz};
 }
 
 StateVector physical_flux_x(const StateVector& state, double bx, double gamma)
@@ -74,17 +75,25 @@ void require_close(const StateVector& actual, const StateVector& expected)
   }
 }
 
+StateVector solver_flux_from_primitive(const StateVector& left, const StateVector& right, double bx,
+                                       double gamma)
+{
+  StateVector flux{};
+  hlld_flux_from_primitive(left.data(), right.data(), bx, gamma, flux.data());
+  return flux;
+}
+
 } // namespace
 
-TEST_CASE("equal conservative states reduce to the physical flux")
+TEST_CASE("equal primitive states reduce to the physical flux")
 {
   const double      bx    = 0.35;
   const double      gamma = 1.4;
-  const StateVector primitive{0.9, -0.45, 0.2, 0.15, 0.8, -0.3, 0.55};
-  const StateVector state = primitive_to_conservative(primitive, bx, gamma);
+  const StateVector state{0.9, -0.45, 0.2, 0.15, 0.8, -0.3, 0.55};
 
-  const StateVector actual   = hlld_flux_from_conservative(state, state, bx, gamma);
-  const StateVector expected = physical_flux_x(state, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(state, state, bx, gamma);
+  const StateVector expected =
+      physical_flux_x(primitive_to_conservative(state, bx, gamma), bx, gamma);
 
   require_close(actual, expected);
 }
@@ -97,7 +106,7 @@ TEST_CASE("nontrivial primitive solve returns finite values")
   const StateVector left{1.08, 0.45, -0.12, 0.08, 0.95, 0.4, -0.3};
   const StateVector right{0.72, -0.25, 0.16, -0.05, 0.58, -0.2, 0.35};
 
-  const StateVector flux = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector flux = solver_flux_from_primitive(left, right, bx, gamma);
 
   for (double value : flux) {
     REQUIRE(std::isfinite(value));
@@ -113,7 +122,7 @@ TEST_CASE("hidden reference flux case 1 matches reference implementation")
   const StateVector right{0.72, -0.25, 0.16, -0.05, 0.58, -0.2, 0.35};
   const StateVector expected = hidden_reference::hlld_flux_from_primitive(left, right, bx, gamma);
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -126,7 +135,7 @@ TEST_CASE("hidden reference flux case 2 matches reference implementation")
   const StateVector right{1.15, 0.18, -0.12, -0.08, 1.05, 0.22, -0.4};
   const StateVector expected = hidden_reference::hlld_flux_from_primitive(left, right, bx, gamma);
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -139,7 +148,7 @@ TEST_CASE("small Bx near-degenerate reference case matches reference implementat
   const StateVector right{0.85, -0.3, -0.15, 0.25, 0.8, -0.35, 0.45};
   const StateVector expected = hidden_reference::hlld_flux_from_primitive(left, right, bx, gamma);
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
 
@@ -152,6 +161,6 @@ TEST_CASE("second Bx equals zero hydro case matches reference implementation")
   const StateVector right{1.2, -0.2, 0.0, 0.0, 1.3, 0.0, 0.0};
   const StateVector expected = hidden_reference::hlld_flux_from_primitive(left, right, bx, gamma);
 
-  const StateVector actual = hlld_flux_from_primitive(left, right, bx, gamma);
+  const StateVector actual = solver_flux_from_primitive(left, right, bx, gamma);
   require_close(actual, expected);
 }
