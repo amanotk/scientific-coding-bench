@@ -9,6 +9,7 @@ This suite contains benchmark tasks for ideal magnetohydrodynamics solvers.
 - `cpp-hlld-00/`: default C++ HLLD task with detailed solver guidance in spec.
 - `cpp-hlld-01/`: variant C++ HLLD task with reduced guidance but same test intent.
 - `cpp-full1d-00/`: easiest C++ full 1D ideal MHD variant (main+HLLD provided, solver scaffolded).
+- `cpp-full1d-01/`: reduced-guidance full 1D variant with only `evolve_ssp_rk3(...)` exposed.
 - `shared/eval/README.md`: hidden-eval contract for shared MHD scoring assets.
 - `shared/eval/mhd1d_shared.py`: shared helpers for CSV loading, score
   windows, and comparison metadata.
